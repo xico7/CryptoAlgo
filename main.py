@@ -12,11 +12,6 @@ import asyncio
 import motor.core
 
 
-
-
-
-
-
 async def binance_to_mongodb(ms, db):
     async with ms as tscm:
         while True:
