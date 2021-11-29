@@ -12,6 +12,13 @@ import asyncio
 import motor.core
 
 
+def start_background_loop(loop: asyncio.AbstractEventLoop) -> None:
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
+
+
 async def binance_to_mongodb(ms, db):
     async with ms as tscm:
         while True:
@@ -29,10 +36,11 @@ async def main():
 
     #await binance_to_mongodb(bm.multiplex_socket(new_list), db)
     loop = asyncio.new_event_loop()
-    t = threading.Thread(target=binance_to_mongodb, args=(loop,), daemon=True)
+    t = threading.Thread(target=start_background_loop, args=(loop,), daemon=True)
     t.start()
     # await asyncio.gather(*[mdb.do_insert(database)])
-
+    await binance_to_mongodb(bm.multiplex_socket(new_list), db)
+    asyncio.run_coroutine_threadsafe(binance_to_mongodb(bm.multiplex_socket(new_list), db), loop)
 
 
 
