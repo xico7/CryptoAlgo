@@ -19,7 +19,7 @@ database_path = '/MongoDB'
 #
 #     conn.close()
 
-def connect_mongodb():
+def connect_to_db():
     from motor.motor_asyncio import (
         AsyncIOMotorClient as MotorClient,
     )
@@ -28,27 +28,19 @@ def connect_mongodb():
     client = MotorClient('mongodb://localhost:27017/BinanceUSDTCoinPairs')
     client.get_io_loop = asyncio.get_running_loop
 
-    # The current database ("test")
     db = client.get_default_database()
-
-
-    # db = client.test_database
-    # collection = db.test_collection
 
     return db, client
 
 
-#!/usr/bin/env python3
-# countasync.py
 
 
-async def do_insert(db, socket_data):
-    my_collection = socket_data['data']['s']
 
-    db.create_collection(my_collection)
+async def insert_in_db(db, socket_data):
 
-    database = db.get_collection(my_collection)
-#    database.createIndex(background: True)
+    db.create_collection(list(socket_data.keys())[0])
+
+    database = db.get_collection(list(socket_data.keys())[0])
     await database.insert_one(socket_data)
 
     pass
