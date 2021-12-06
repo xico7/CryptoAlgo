@@ -5,6 +5,42 @@ import time
 
 database_path = '/MongoDB'
 
+def connect_to_usdt_candlestick_db():
+    from motor.motor_asyncio import (
+        AsyncIOMotorClient as MotorClient,
+    )
+
+    # MongoDB client
+    client = MotorClient('mongodb://localhost:27017/BinanceUSDTCoinPairs')
+    db = client.get_default_database()
+
+    return db
+
+
+def connect_to_TA_lines_db():
+    from motor.motor_asyncio import (
+        AsyncIOMotorClient as MotorClient,
+    )
+
+    # MongoDB client
+    client = MotorClient('mongodb://localhost:27017/TA_RS_VOL')
+
+    db = client.get_default_database()
+
+    return db
+
+
+
+async def insert_in_db(db, socket_data):
+
+    db.create_collection(list(socket_data.keys())[0])
+
+    database = db.get_collection(list(socket_data.keys())[0])
+    await database.insert_one(socket_data)
+
+
+
+
 # def create_db_Volume_fund():
 #     conn = sqlite3.connect(database_path)
 #
@@ -18,32 +54,3 @@ database_path = '/MongoDB'
 #     conn.commit()
 #
 #     conn.close()
-
-def connect_to_db():
-    from motor.motor_asyncio import (
-        AsyncIOMotorClient as MotorClient,
-    )
-
-    # MongoDB client
-    client = MotorClient('mongodb://localhost:27017/BinanceUSDTCoinPairs')
-    client.get_io_loop = asyncio.get_running_loop
-
-    db = client.get_default_database()
-
-    return db, client
-
-
-
-
-
-async def insert_in_db(db, socket_data):
-
-    db.create_collection(list(socket_data.keys())[0])
-
-    database = db.get_collection(list(socket_data.keys())[0])
-    await database.insert_one(socket_data)
-
-    pass
-
-
-
