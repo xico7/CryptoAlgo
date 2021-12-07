@@ -30,26 +30,48 @@ async def insert_aggtrade_data(db, current_data):
 
 
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db):
+    # TODO: implement coingecko ratio (refresh 24h).
+    crypto_sp500_current_value = {}
     atr_14_period_klines = {}
     current_klines = {}
+
     async with multisocket_candle as tscm:
         while True:
             ws_trade = await tscm.recv()
             try:
                 if CANDLESTICK_WS in ws_trade['stream']:
                     kline_data = ws_trade['data']['k']
-                    current_klines, new_symbol_kline = await insert_update_kline_data(candlestick_db,
+                    current_klines, new_kline_data = await insert_update_kline_data(candlestick_db,
                                                                                       current_klines,
                                                                                       kline_data)
-                    if new_symbol_kline:
-                        #atr_14_period_klines[list(new_symbol_kline.keys())[0]]['3'] = list(new_symbol_kline.values())
-                        atr_14_period_klines.update(new_symbol_kline)
+
+                    if new_kline_data:
+                        symbol = list(new_kline_data.keys())[0]
+                        if symbol in atr_14_period_klines:
+                            atr_symbol_max = max(list(atr_14_period_klines[symbol]))
+
+                            if atr_symbol_max == 5:
+                                for elem in atr_14_period_klines[symbol]:
+
+                                    if not elem == atr_symbol_max:
+                                        atr_14_period_klines[symbol][elem] = \
+                                            atr_14_period_klines[symbol][elem + 1]
+                                    else:
+                                        atr_14_period_klines[symbol][atr_symbol_max] = list(new_kline_data.values())
+                                        break
+
+                                atr_key = 5
+                            else:
+                                atr_key = atr_symbol_max + 1
+                            atr_14_period_klines[symbol][atr_key] = list(new_kline_data.values())
+                        else:
+                            atr_14_period_klines.update({symbol: {1: list(new_kline_data.values())}})
 
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
                     aggtrade_data = ws_trade['data']
                     await insert_aggtrade_data(ta_lines_db, aggtrade_data)
             except Exception as e:
-                #TODO: treat restart when QUEUE reaches limit, lost trades are not really many, a few milliseconds for each minute.
+                #TODO: treat restart when QUEUE reaches limit.
                 print(f"{e}, {ws_trade}")
 
             print(f"{time.time()} , {ws_trade['data']['E']} , calc")
@@ -69,7 +91,7 @@ async def main():
             candlestick_db, ta_lines_db)
         pass
 
-
+# TODO: when implementing ATR, create abstraction for 1m to 5m candles, DB needs all 1m candles, ATR will be mostly used with 5m candles.
 # TODO: create indexs
 # TODO: implement RS from top 30 coingecko coins marketcap ratio each day.
 # TODO: implement matplotlib to see TA.
