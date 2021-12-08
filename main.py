@@ -27,23 +27,6 @@ AGGREGATED_TRADE_WS = "@aggTrade"
 ATR_INDEX_SIZE = 2
 
 
-async def insert_update_kline_data(db, candles, current_data):
-    clean_kline_data = {current_data['s']: dts.clean_data(current_data, 't', 'v', 'o', 'h', 'l', 'c')}
-    updated_candles, symbol_data = dts.data_feed(candles, clean_kline_data)
-
-    if symbol_data:
-        mongdb_symbol_data = dict(symbol_data)  # mongo async lib adds items to dict.
-        await mongo.insert_in_db(db, mongdb_symbol_data)
-        return updated_candles, symbol_data
-
-    return updated_candles, None
-
-
-async def insert_aggtrade_data(db, current_data):
-    clean_aggtrade_data = {current_data['s']: dts.clean_data(current_data, 'E', 'p', 'q')}
-    await mongo.insert_in_db(db, clean_aggtrade_data)
-
-
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, coin_ratio):
     # TODO: implement coingecko ratio (refresh 24h).
 
@@ -57,34 +40,22 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
                 ws_trade = await tscm.recv()
                 if CANDLESTICK_WS in ws_trade['stream']:
                     kline_data = ws_trade['data']['k']
-                    current_klines, new_kline_data = await insert_update_kline_data(candlestick_db,
+                    current_klines, new_kline_data = await dts.insert_update_kline_data(candlestick_db,
                                                                                     current_klines,
                                                                                     kline_data)
 
                     if new_kline_data:
-                        symbol = list(new_kline_data.keys())[0]
-                        if symbol not in atr:
-                            atr.update({symbol: {1: list(new_kline_data.values())}})
-                        else:
-                            atr_last_index = max(list(atr[symbol]))
-
-                            if atr_last_index < ATR_INDEX_SIZE:
-                                atr[symbol][atr_last_index + 1] = list(new_kline_data.values())
-                            else:
-                                for elem in atr[symbol]:
-                                    if not elem == atr_last_index:
-                                        atr[symbol][elem] = atr[symbol][elem + 1]
-                                    else:
-                                        atr[symbol][atr_last_index] = list(new_kline_data.values())
-                                        break
+                        atr = dts.update_atr(new_kline_data)
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
                     aggtrade_data = ws_trade['data']
+
                     symbol = aggtrade_data['s']
+                    aggtrade_clean_data = dts.clean_data(aggtrade_data, 'E', 'p', 'q')
 
                     if symbol in sp500_symbols_usdt_pairs:
                         sp500_current_value.update({symbol: aggtrade_data['p']})
 
-                    await insert_aggtrade_data(ta_lines_db, aggtrade_data)
+                    await dts.insert_aggtrade_data(ta_lines_db, symbol, aggtrade_clean_data)
             except Exception as e:
                 # TODO: treat restart when QUEUE reaches limit.
                 print(f"{e}, {ws_trade}")
@@ -95,8 +66,6 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
 async def main():
     candlestick_db = mongo.connect_to_usdt_candlestick_db()
     ta_lines_db = mongo.connect_to_TA_lines_db()
-
-
     coin_normalized_ratio = dts.sp500_normalized_one_usdt_ratio(sp500_symbols, coingecko_marketcap_api_link)
 
     binance_client = await AsyncClient.create()
@@ -107,7 +76,6 @@ async def main():
             dts.symbols_stream(CANDLESTICKS_ONE_MINUTE_WS) +
             dts.symbols_stream(AGGREGATED_TRADE_WS)),
             candlestick_db, ta_lines_db, coin_normalized_ratio)
-        pass
 
 
 # TODO: when implementing ATR, create abstraction for 1m to 5m candles, DB needs all 1m candles, ATR will be mostly used with 5m candles.

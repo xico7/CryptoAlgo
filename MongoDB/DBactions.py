@@ -2,6 +2,7 @@ import motor.motor_asyncio
 import asyncio
 from pymongo import MongoClient
 import time
+import data_staging as dts
 
 database_path = '/MongoDB'
 
@@ -30,27 +31,10 @@ def connect_to_TA_lines_db():
     return db
 
 
+async def insert_in_db(db, data):
 
-async def insert_in_db(db, socket_data):
+    db.create_collection(list(data.keys())[0])
 
-    db.create_collection(list(socket_data.keys())[0])
+    database = db.get_collection(list(data.keys())[0])
+    await database.insert_one(data)
 
-    database = db.get_collection(list(socket_data.keys())[0])
-    await database.insert_one(socket_data)
-
-
-
-
-# def create_db_Volume_fund():
-#     conn = sqlite3.connect(database_path)
-#
-#     c = conn.cursor()
-#
-#     createtable = f"""CREATE TABLE crypto_fund (
-#                      timestamp integer,
-#                      price integer )"""
-#     c.execute(createtable)
-#
-#     conn.commit()
-#
-#     conn.close()

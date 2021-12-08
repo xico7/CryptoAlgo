@@ -1,8 +1,10 @@
 import re
 from typing import Tuple, Optional
+from main import ATR_INDEX_SIZE
+
 
 import requests as requests
-
+import MongoDB.DBactions as mongo
 
 def clean_data(data, *args):
     data_keys = {}
@@ -10,6 +12,23 @@ def clean_data(data, *args):
         data_keys.update({arg: data[arg]})
 
     return data_keys
+
+
+async def insert_aggtrade_data(db, data_symbol, data):
+    aggtrade_symbol_data = {data_symbol: data}
+    await mongo.insert_in_db(db, aggtrade_symbol_data)
+
+
+async def insert_update_kline_data(db, candles, current_data):
+    clean_kline_data = {current_data['s']: clean_data(current_data, 't', 'v', 'o', 'h', 'l', 'c')}
+    updated_candles, symbol_data = data_feed(candles, clean_kline_data)
+
+    if symbol_data:
+        mongodb_symbol_data = dict(symbol_data)  # mongo async lib adds items to dict.
+        await mongo.insert_in_db(db, mongodb_symbol_data)
+        return updated_candles, symbol_data
+
+    return updated_candles, None
 
 
 # TODO: take out unwanted USDT pairs... usdc etc etc,.
@@ -65,6 +84,25 @@ def data_feed(latest_candles: list, current_trade: dict) -> Tuple[list, Optional
 
     return latest_candles, None
 
+
+def update_atr(kline_data):
+    atr = {}
+    symbol = list(kline_data.keys())[0]
+
+    if symbol not in atr:
+        atr.update({symbol: {1: list(kline_data.values())}})
+    else:
+        atr_last_index = max(list(atr[symbol]))
+
+        if atr_last_index < ATR_INDEX_SIZE:
+            atr[symbol][atr_last_index + 1] = list(kline_data.values())
+        else:
+            for elem in atr[symbol]:
+                if not elem == atr_last_index:
+                    atr[symbol][elem] = atr[symbol][elem + 1]
+                else:
+                    atr[symbol][atr_last_index] = list(kline_data.values())
+    return atr
 
 def sp500_normalized_one_usdt_ratio(symbol_pairs: list, api: str) -> list:
     symbols_information = requests.get(api).json()
