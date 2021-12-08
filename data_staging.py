@@ -1,3 +1,4 @@
+import re
 from typing import Tuple, Optional
 
 import requests as requests
@@ -63,3 +64,21 @@ def data_feed(latest_candles: list, current_trade: dict) -> Tuple[list, Optional
         latest_candles[symbol][low] = current_trade[symbol][low]
 
     return latest_candles, None
+
+
+def sp500_normalized_one_usdt_ratio(symbol_pairs: list, api: str) -> list:
+    symbols_information = requests.get(api).json()
+
+    sp500_symbols = {}
+
+    for idx, symbol_info in enumerate(symbols_information):
+        current_symbol = symbol_info['symbol'].upper()  # normalize symbols to uppercase.
+        if current_symbol in symbol_pairs:
+            sp500_symbols.update(
+                {current_symbol: {'price': symbol_info['current_price'],
+                                  'market_cap': symbol_info['market_cap']}})
+
+    sp500_marketcap = sum([sp500_symbols[elem]['market_cap'] for elem in sp500_symbols])
+
+    return [{elem: sp500_symbols[elem]['market_cap'] / sp500_marketcap / sp500_symbols[elem]['price']}
+            for elem in sp500_symbols]
