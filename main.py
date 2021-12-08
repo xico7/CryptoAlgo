@@ -8,14 +8,14 @@ import logging
 import time
 
 sp500_symbols_usdt_pairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LUNAUSDT',
-                 'DOGEUSDT',
-                 'AVAXUSDT', 'SHIBUSDT', 'MATICUSDT', 'LTCUSDT', 'UNIUSDT', 'LINKUSDT', 'TRXUSDT', 'BCHUSDT',
-                 'ALGOUSDT',
-                 'MANAUSDT', 'XLMUSDT', 'AXSUSDT', 'VETUSDT', 'FTTUSDT', 'EGLDUSDT', 'ATOMUSDT', 'ICPUSDT',
-                 'FILUSDT',
-                 'HBARUSDT', 'SANDUSDT', 'THETAUSDT', 'FTMUSDT',
-                 'NEARUSDT', 'BTTUSDTXTZUSDT', 'XMRUSDT', 'KLAYUSDT', 'GALAUSDT', 'HNTUSDT', 'GRTUSDT', 'LRCUSDT']
-
+                            'DOGEUSDT',
+                            'AVAXUSDT', 'SHIBUSDT', 'MATICUSDT', 'LTCUSDT', 'UNIUSDT', 'LINKUSDT', 'TRXUSDT', 'BCHUSDT',
+                            'ALGOUSDT',
+                            'MANAUSDT', 'XLMUSDT', 'AXSUSDT', 'VETUSDT', 'FTTUSDT', 'EGLDUSDT', 'ATOMUSDT', 'ICPUSDT',
+                            'FILUSDT',
+                            'HBARUSDT', 'SANDUSDT', 'THETAUSDT', 'FTMUSDT',
+                            'NEARUSDT', 'BTTUSDTXTZUSDT', 'XMRUSDT', 'KLAYUSDT', 'GALAUSDT', 'HNTUSDT', 'GRTUSDT',
+                            'LRCUSDT']
 sp500_symbols = [re.match('(^(.+?)USDT)', x).groups()[1].upper() for x in sp500_symbols_usdt_pairs]
 
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
@@ -28,7 +28,6 @@ ATR_INDEX_SIZE = 2
 
 
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, coin_ratio):
-    # TODO: implement coingecko ratio (refresh 24h).
 
     sp500_current_value = {}
     atr = {}
@@ -39,13 +38,19 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
             try:
                 ws_trade = await tscm.recv()
                 if CANDLESTICK_WS in ws_trade['stream']:
-                    kline_data = ws_trade['data']['k']
-                    current_klines, new_kline_data = await dts.insert_update_kline_data(candlestick_db,
-                                                                                    current_klines,
-                                                                                    kline_data)
+
+                    kline_trade_data = ws_trade['data']['k']
+                    clean_kline_data = {kline_trade_data['s']: dts.clean_data(kline_trade_data,
+                                                                              't', 'v', 'o', 'h', 'l', 'c')}
+
+                    current_klines, new_kline_data = dts.data_feed(current_klines, clean_kline_data)
+
 
                     if new_kline_data:
                         atr = dts.update_atr(new_kline_data)
+                        #mongodb_symbol_data = dict(new_kline_data)  # mongo async lib adds items to dict.
+                        await mongo.insert_in_db(candlestick_db, new_kline_data)
+
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
                     aggtrade_data = ws_trade['data']
 
@@ -54,8 +59,8 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
 
                     if symbol in sp500_symbols_usdt_pairs:
                         sp500_current_value.update({symbol: aggtrade_data['p']})
-
                     await dts.insert_aggtrade_data(ta_lines_db, symbol, aggtrade_clean_data)
+
             except Exception as e:
                 # TODO: treat restart when QUEUE reaches limit.
                 print(f"{e}, {ws_trade}")
@@ -80,7 +85,7 @@ async def main():
 
 # TODO: when implementing ATR, create abstraction for 1m to 5m candles, DB needs all 1m candles, ATR will be mostly used with 5m candles.
 # TODO: create indexs
-# TODO: implement RS from top 30 coingecko coins marketcap ratio each day.
+# TODO: implement coingecko refresh 24h.
 # TODO: implement matplotlib to see TA.
 # TODO: 14 candlestick value cached in python for ATR calc
 #    database.createIndex(background: True)

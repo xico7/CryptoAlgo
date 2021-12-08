@@ -19,18 +19,6 @@ async def insert_aggtrade_data(db, data_symbol, data):
     await mongo.insert_in_db(db, aggtrade_symbol_data)
 
 
-async def insert_update_kline_data(db, candles, current_data):
-    clean_kline_data = {current_data['s']: clean_data(current_data, 't', 'v', 'o', 'h', 'l', 'c')}
-    updated_candles, symbol_data = data_feed(candles, clean_kline_data)
-
-    if symbol_data:
-        mongodb_symbol_data = dict(symbol_data)  # mongo async lib adds items to dict.
-        await mongo.insert_in_db(db, mongodb_symbol_data)
-        return updated_candles, symbol_data
-
-    return updated_candles, None
-
-
 # TODO: take out unwanted USDT pairs... usdc etc etc,.
 def get_usdt_symbols() -> list:
     usdt_symbols = []
