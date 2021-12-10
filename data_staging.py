@@ -1,10 +1,16 @@
 import re
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any, Union, List
 from main import ATR_INDEX_SIZE
-
-
 import requests as requests
 import MongoDB.DBactions as mongo
+
+
+def remove_usdt(symbols: Union[list, str]) -> Union[str, List[str]]:
+    if isinstance(symbols, str):
+        return re.match('(^(.+?)USDT)', symbols).groups()[1].upper()
+    else:
+        return [re.match('(^(.+?)USDT)', symbol).groups()[1].upper() for symbol in symbols]
+
 
 def clean_data(data, *args):
     data_keys = {}
@@ -92,7 +98,8 @@ def update_atr(kline_data):
                     atr[symbol][atr_last_index] = list(kline_data.values())
     return atr
 
-def sp500_normalized_one_usdt_ratio(symbol_pairs: list, api: str) -> list:
+
+def sp500_multiply_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[float, Any]]:
     symbols_information = requests.get(api).json()
 
     sp500_symbols = {}
@@ -106,5 +113,28 @@ def sp500_normalized_one_usdt_ratio(symbol_pairs: list, api: str) -> list:
 
     sp500_marketcap = sum([sp500_symbols[elem]['market_cap'] for elem in sp500_symbols])
 
-    return [{elem: sp500_symbols[elem]['market_cap'] / sp500_marketcap / sp500_symbols[elem]['price']}
-            for elem in sp500_symbols]
+    mulitply_coin_ratio = {}
+    for elem in sp500_symbols:
+        mulitply_coin_ratio.update({elem: sp500_symbols[elem]['market_cap'] / sp500_symbols[elem]['price']})
+
+    return mulitply_coin_ratio
+
+# def sp500_normalized_one_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[float, Any]]:
+#     symbols_information = requests.get(api).json()
+#
+#     sp500_symbols = {}
+#
+#     for idx, symbol_info in enumerate(symbols_information):
+#         current_symbol = symbol_info['symbol'].upper()  # normalize symbols to uppercase.
+#         if current_symbol in symbol_pairs:
+#             sp500_symbols.update(
+#                 {current_symbol: {'price': symbol_info['current_price'],
+#                                   'market_cap': symbol_info['market_cap']}})
+#
+#     sp500_marketcap = sum([sp500_symbols[elem]['market_cap'] for elem in sp500_symbols])
+#
+#     normalized_coin_ratio = {}
+#     for elem in sp500_symbols:
+#         normalized_coin_ratio.update({elem: sp500_symbols[elem]['market_cap'] / sp500_marketcap / sp500_symbols[elem]['price']})
+#
+#     return normalized_coin_ratio
