@@ -11,7 +11,7 @@ import time
 
 logging.basicConfig(level=logging.DEBUG)
 
-sp500_symbols_usdt_pairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LUNAUSDT',
+SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LUNAUSDT',
                             'DOGEUSDT',
                             'AVAXUSDT', 'SHIBUSDT', 'MATICUSDT', 'LTCUSDT', 'UNIUSDT', 'LINKUSDT', 'TRXUSDT', 'BCHUSDT',
                             'ALGOUSDT',
@@ -22,16 +22,16 @@ sp500_symbols_usdt_pairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT
                             'LRCUSDT']
 
 cached_coins_volume = {}
-cached_coin_present_values = {}
+cached_coins_moment_price = {}
 cached_marketcap_coins_value = {}
 cached_marketcap_sum = 0
 
 cached_marketcap_latest_timestamp = 0
-cached_current_marketcap_ohlc = {'t': 0, 'h': 0, 'o': 0, 'l': 999999999999999, 'c': 0}
-cached_current_ohlcs = {}
+cached_marketcap_current_ohlc = {'t': 0, 'h': 0, 'o': 0, 'l': 999999999999999, 'c': 0}
+cached_coins_current_ohlcs = {}
 
 cached_marketcap_ohlc_data = {}
-cached_symbols_ohlc_data = {}
+cached_coins_ohlc_data = {}
 
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
                                "markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=1&sparkline=false"
@@ -60,51 +60,54 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
     async with multisocket_candle as tscm:
         while True:
             try:
-                global cached_current_ohlcs, cached_symbols_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp
+                global cached_coins_current_ohlcs, cached_coins_ohlc_data, cached_marketcap_ohlc_data, \
+                    cached_coins_volume, cached_coins_moment_price, cached_marketcap_latest_timestamp, \
+                    cached_marketcap_coins_value, cached_marketcap_current_ohlc, cached_marketcap_sum
 
-
+                cached_coins_current_ohlcs_copy = cached_coins_current_ohlcs.copy()
+                cached_coins_ohlc_data_copy = cached_coins_ohlc_data.copy()
+                cached_marketcap_ohlc_data_copy = cached_marketcap_ohlc_data.copy()
+                cached_coins_volume_copy = cached_coins_volume.copy()
+                cached_coins_moment_price_copy = cached_coins_moment_price.copy()
+                cached_marketcap_coins_value_copy = cached_marketcap_coins_value.copy()
+                cached_marketcap_current_ohlc_copy = cached_marketcap_current_ohlc.copy()
 
                 ws_trade = await tscm.recv()
                 if int(time.time()) > time_counter + 2 and cached_marketcap_latest_timestamp > 0:
                     time_counter += 2
-                    dts.update_current_marketcap_ohlc_data(cached_current_marketcap_ohlc,
-                                                           cached_marketcap_latest_timestamp,
-                                                           cached_marketcap_sum)
+                    cached_marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
+                        cached_marketcap_current_ohlc_copy, cached_marketcap_latest_timestamp, cached_marketcap_sum)
 
                 if CANDLESTICK_WS in ws_trade['stream']:
 
-                    cached_current_ohlcs, cached_symbols_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp = \
-                        await dts.transform_candles(cached_current_ohlcs,
-                                                    ws_trade['data']['k'],
-                                                    candlestick_db,
-                                                    cached_symbols_ohlc_data,
-                                                    cached_marketcap_ohlc_data,
-                                                    cached_current_marketcap_ohlc,
-                                                    cached_marketcap_latest_timestamp,
-                                                    OHLC_CACHE_PERIODS)
+                    cached_coins_current_ohlcs, cached_coins_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp = \
+                        await dts.transform_candles(cached_coins_current_ohlcs_copy, ws_trade['data']['k'], candlestick_db,
+                                                    cached_coins_ohlc_data_copy, cached_marketcap_ohlc_data_copy,
+                                                    cached_marketcap_current_ohlc_copy,
+                                                    cached_marketcap_latest_timestamp, OHLC_CACHE_PERIODS)
 
 
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
+
                     aggtrade_data = ws_trade['data']
-
                     symbol_pair = ws_trade['data']['s']
+                    coin_moment_price = aggtrade_data['p']
 
-                    aggtrade_clean_data = dts.clean_data(aggtrade_data, 'E', 'p', 'q')
-
-                    if symbol_pair in sp500_symbols_usdt_pairs:
+                    if symbol_pair in SP500_SYMBOLS_USDT_PAIRS:
                         coin_symbol = dts.remove_usdt(symbol_pair)
-                        cached_coin_present_values.update({coin_symbol: float(aggtrade_data['p'])})
+                        cached_coins_moment_price = dts.update_cached_coins_values(
+                            cached_coins_moment_price_copy, coin_symbol, coin_moment_price)
 
-                        cached_marketcap_coins_value.update({coin_symbol: (float(aggtrade_data['p']) *
-                                                                           coin_ratio[coin_symbol])})
+                        cached_marketcap_coins_value = dts.update_cached_marketcap_coins_value(
+                            cached_marketcap_coins_value_copy, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
+
                         cached_marketcap_sum = sum(list(cached_marketcap_coins_value.values()))
 
-                        if coin_symbol in cached_coins_volume:
-                            cached_coins_volume[coin_symbol] += float(aggtrade_data['q'])
-                        else:
-                            cached_coins_volume.update({coin_symbol: float(aggtrade_data['q'])})
+                        cached_coins_volume = dts.update_cached_coin_volumes(
+                            cached_coins_volume_copy, coin_symbol, coin_moment_price)
 
-                    await dts.insert_aggtrade_data(ta_lines_db, symbol_pair, aggtrade_clean_data)
+                    await dts.insert_aggtrade_data(ta_lines_db, symbol_pair,
+                                                   dts.clean_data(aggtrade_data, 'E', 'p', 'q'))
 
                 print(f"{time.time()} , {ws_trade['data']['E']} , calc")
 
@@ -117,7 +120,7 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
 async def main():
     candlestick_db = mongo.connect_to_usdt_candlestick_db()
     ta_lines_db = mongo.connect_to_TA_lines_db()
-    coin_normalized_ratio = dts.sp500_multiply_usdt_ratio(dts.remove_usdt(sp500_symbols_usdt_pairs),
+    coin_normalized_ratio = dts.sp500_multiply_usdt_ratio(dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS),
                                                           coingecko_marketcap_api_link)
 
     binance_client = await AsyncClient.create()

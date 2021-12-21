@@ -63,44 +63,37 @@ async def transform_candles(cached_current_ohlcs: dict,
                             cached_current_marketcap_ohlc: dict,
                             cached_marketcap_latest_timestamp: int,
                             ohlc_periods: int):
-
-    cached_current_ohlcs_copy = cached_current_ohlcs.copy()
-    trade_data_copy = trade_data.copy()
-    cached_symbols_ohlc_data_copy = cached_symbols_ohlc_data.copy()
-    cached_marketcap_ohlc_data_copy = cached_marketcap_ohlc_data.copy()
-    cached_current_marketcap_candle_copy = cached_current_marketcap_ohlc.copy()
-
-    ohlc_trade_data = {trade_data_copy['s']: clean_data(trade_data_copy, 't', 'v', 'o', 'h', 'l', 'c')}
+    ohlc_trade_data = {trade_data['s']: clean_data(trade_data, 't', 'v', 'o', 'h', 'l', 'c')}
 
     symbol_pair = list(ohlc_trade_data.keys())[0]
 
-    if symbol_pair not in cached_current_ohlcs_copy:
-        cached_current_ohlcs_copy.update(ohlc_trade_data)
+    if symbol_pair not in cached_current_ohlcs:
+        cached_current_ohlcs.update(ohlc_trade_data)
 
-    cached_current_ohlcs_copy[symbol_pair] = update_current_symbol_ohlc(cached_current_ohlcs_copy[symbol_pair],
-                                                                        ohlc_trade_data[symbol_pair])
+    cached_current_ohlcs[symbol_pair] = update_current_symbol_ohlc(cached_current_ohlcs[symbol_pair],
+                                                                   ohlc_trade_data[symbol_pair])
 
     # Candle timeframe changed, time to write candle value into DB and reset symbol value.
-    if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_current_ohlcs_copy[symbol_pair][TIMESTAMP]:
-        new_ohlc_data = {symbol_pair: cached_current_ohlcs_copy[symbol_pair]}
+    if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_current_ohlcs[symbol_pair][TIMESTAMP]:
+        new_ohlc_data = {symbol_pair: cached_current_ohlcs[symbol_pair]}
 
         await mongo.insert_in_db(candlestick_db, new_ohlc_data)
-        del cached_current_ohlcs_copy[symbol_pair]
-        cached_symbols_ohlc_data_copy = update_cached_symbols_ohlc_data(cached_symbols_ohlc_data_copy,
-                                                                        new_ohlc_data,
-                                                                        ohlc_periods)
+        del cached_current_ohlcs[symbol_pair]
+        cached_symbols_ohlc_data = update_cached_symbols_ohlc_data(cached_symbols_ohlc_data,
+                                                                   new_ohlc_data,
+                                                                   ohlc_periods)
 
         if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_marketcap_latest_timestamp:
             cached_marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]
             if cached_marketcap_latest_timestamp > 0:
-                cached_marketcap_ohlc_data_copy = update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy,
-                                                                                    cached_current_marketcap_candle_copy,
-                                                                                    ohlc_periods)
+                cached_marketcap_ohlc_data = update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data,
+                                                                               cached_current_marketcap_ohlc,
+                                                                               ohlc_periods)
 
             # dts.insert_mktcap_candle_db()
             # reset mktcap_candle
 
-    return cached_current_ohlcs_copy, cached_symbols_ohlc_data_copy, cached_marketcap_ohlc_data_copy, cached_marketcap_latest_timestamp
+    return cached_current_ohlcs, cached_symbols_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp
 
 
 def update_current_symbol_ohlc(current_symbol_ohlc, ohlc_trade_data):
@@ -160,20 +153,38 @@ def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cac
 
 def update_current_marketcap_ohlc_data(marketcap_ohlc: dict, timestamp: int, marketcap_moment_value: dict) -> dict:
 
-    marketcap_ohlc_copy = marketcap_ohlc.copy()
-    marketcap_moment_value_copy = marketcap_moment_value.copy()
+    marketcap_ohlc[TIMESTAMP] = timestamp
+    if marketcap_ohlc[OPEN] == 0:
+        marketcap_ohlc[OPEN] = marketcap_moment_value
 
-    marketcap_ohlc_copy[TIMESTAMP] = timestamp
-    if marketcap_ohlc_copy[OPEN] == 0:
-        marketcap_ohlc_copy[OPEN] = marketcap_moment_value_copy
+    marketcap_ohlc[CLOSE] = marketcap_moment_value
+    if marketcap_moment_value > marketcap_ohlc[HIGH]:
+        marketcap_ohlc[HIGH] = marketcap_moment_value
+    if marketcap_moment_value < marketcap_ohlc[LOW]:
+        marketcap_ohlc[LOW] = marketcap_moment_value
 
-    marketcap_ohlc_copy[CLOSE] = marketcap_moment_value_copy
-    if marketcap_moment_value_copy > marketcap_ohlc_copy[HIGH]:
-        marketcap_ohlc_copy[HIGH] = marketcap_moment_value_copy
-    if marketcap_moment_value_copy < marketcap_ohlc_copy[LOW]:
-        marketcap_ohlc_copy[LOW] = marketcap_moment_value_copy
+    return marketcap_ohlc
 
-    return marketcap_ohlc_copy
+
+def update_cached_coins_values(cached_coins_values: dict, coin_symbol: str, coin_moment_price: float) -> dict:
+    cached_coins_values.update({coin_symbol: float(coin_moment_price)})
+
+    return cached_coins_values
+
+
+def update_cached_coin_volumes(cached_coins_volume: dict, coin_symbol: str, coin_moment_price: float) -> dict:
+    if coin_symbol in cached_coins_volume:
+        cached_coins_volume[coin_symbol] += float(coin_moment_price)
+    else:
+        cached_coins_volume.update({coin_symbol: float(coin_moment_price)})
+
+    return cached_coins_volume
+
+
+def update_cached_marketcap_coins_value(cached_marketcap_coins_value: dict, coin_symbol: str, coin_moment_price: float, coin_ratio: float) -> dict:
+    cached_marketcap_coins_value.update({coin_symbol: (float(coin_moment_price) * coin_ratio)})
+
+    return cached_marketcap_coins_value
 
 
 def sp500_multiply_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[float, Any]]:
