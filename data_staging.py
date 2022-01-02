@@ -2,8 +2,12 @@ import re
 from typing import Tuple, Optional, Dict, Any, Union, List
 import requests as requests
 import MongoDB.DBactions as mongo
+import numpy as np
+import talib
+from numpy import double
 
 # from main import cached_marketcap_ohlc_data, cached_current_marketcap_candle, cached_symbols_ohlc_data, CANDLE_CACHE_PERIODS
+from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS
 
 TIMESTAMP = 't'
 OPEN = 'o'
@@ -85,7 +89,7 @@ async def transform_candles(cached_current_ohlcs: dict,
 
         if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_marketcap_latest_timestamp:
             cached_marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]
-            if cached_marketcap_latest_timestamp > 0:
+            if cached_marketcap_latest_timestamp > 0 and cached_current_marketcap_ohlc['t'] > 0:
                 cached_marketcap_ohlc_data = update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data,
                                                                                cached_current_marketcap_ohlc,
                                                                                ohlc_periods)
@@ -113,21 +117,23 @@ def update_current_symbol_ohlc(current_symbol_ohlc, ohlc_trade_data):
 
 
 def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_periods: int) -> dict:
-    symbol = list(new_ohlc_data.keys())[0]
 
-    if symbol not in ohlc_data:
-        ohlc_data.update({symbol: {1: list(new_ohlc_data.values())[0]}})
+    new_ohlc_symbol = list(new_ohlc_data.keys())[0]
+    new_ohlc_values = list(new_ohlc_data.values())[0]
+
+    if new_ohlc_symbol not in ohlc_data:
+        ohlc_data.update({new_ohlc_symbol: {1: new_ohlc_values}})
     else:
-        atr_last_index = max(list(ohlc_data[symbol]))
+        atr_last_index = max(list(ohlc_data[new_ohlc_symbol]))
 
         if atr_last_index < cache_periods:
-            ohlc_data[symbol][atr_last_index + 1] = list(new_ohlc_data.values())
+            ohlc_data[new_ohlc_symbol][atr_last_index + 1] = new_ohlc_values
         else:
-            for elem in ohlc_data[symbol]:
+            for elem in ohlc_data[new_ohlc_symbol]:
                 if not elem == atr_last_index:
-                    ohlc_data[symbol][elem] = ohlc_data[symbol][elem + 1]
+                    ohlc_data[new_ohlc_symbol][elem] = ohlc_data[new_ohlc_symbol][elem + 1]
                 else:
-                    ohlc_data[symbol][atr_last_index] = list(new_ohlc_data.values())
+                    ohlc_data[new_ohlc_symbol][atr_last_index] = new_ohlc_values
     return ohlc_data
 
 
@@ -152,16 +158,21 @@ def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cac
 
 
 def update_current_marketcap_ohlc_data(marketcap_ohlc: dict, timestamp: int, marketcap_moment_value: dict) -> dict:
-
-    marketcap_ohlc[TIMESTAMP] = timestamp
-    if marketcap_ohlc[OPEN] == 0:
+    if marketcap_ohlc[TIMESTAMP] != timestamp:
+        marketcap_ohlc[TIMESTAMP] = timestamp
         marketcap_ohlc[OPEN] = marketcap_moment_value
-
-    marketcap_ohlc[CLOSE] = marketcap_moment_value
-    if marketcap_moment_value > marketcap_ohlc[HIGH]:
         marketcap_ohlc[HIGH] = marketcap_moment_value
-    if marketcap_moment_value < marketcap_ohlc[LOW]:
+        marketcap_ohlc[CLOSE] = marketcap_moment_value
         marketcap_ohlc[LOW] = marketcap_moment_value
+    else:
+        if marketcap_ohlc[OPEN] == 0:
+            marketcap_ohlc[OPEN] = marketcap_moment_value
+
+        marketcap_ohlc[CLOSE] = marketcap_moment_value
+        if marketcap_moment_value > marketcap_ohlc[HIGH]:
+            marketcap_ohlc[HIGH] = marketcap_moment_value
+        if marketcap_moment_value < marketcap_ohlc[LOW]:
+            marketcap_ohlc[LOW] = marketcap_moment_value
 
     return marketcap_ohlc
 
@@ -206,6 +217,35 @@ def sp500_multiply_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[f
         mulitply_coin_ratio.update({elem: sp500_symbols[elem]['market_cap'] / sp500_symbols[elem]['price']})
 
     return mulitply_coin_ratio
+
+
+def calculate_relative_atr(ohlc_data):
+    high, low, close = [], [], []
+    for item in ohlc_data.items():
+        high.append(float(item[1][HIGH]))
+        low.append(float(item[1][LOW]))
+        close.append(float(item[1][CLOSE]))
+
+    np_high = np.array(high)
+    np_low = np.array(low)
+    np_close = np.array(close)
+    atr = talib.ATR(np_high, np_low, np_close, timeperiod=OHLC_CACHE_PERIODS-1)
+
+    return double(atr[OHLC_CACHE_PERIODS-1]) / double(ohlc_data[len(ohlc_data) - 1]['c']) * 100
+
+
+def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data):
+    coin_relative_atr = calculate_relative_atr(coin_ohlc_data)
+    coin_change_percentage = (float(coin_ohlc_data[len(coin_ohlc_data)]['o']) /
+                              float(coin_ohlc_data[len(coin_ohlc_data) - REL_STRENGTH_PERIODS]['o']) - 1) * 100
+    market_change_percentage = (float(cached_marketcap_ohlc_data[len(cached_marketcap_ohlc_data)]['o']) /
+                                float(cached_marketcap_ohlc_data[len(cached_marketcap_ohlc_data) - REL_STRENGTH_PERIODS]['o']) - 1) * 100
+
+    return (coin_change_percentage - market_change_percentage) / (coin_relative_atr / marketcap_rel_atr)
+
+
+    #marketcap_relative_atr
+
 
 # def sp500_normalized_one_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[float, Any]]:
 #     symbols_information = requests.get(api).json()
