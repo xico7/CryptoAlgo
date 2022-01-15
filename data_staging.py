@@ -9,6 +9,7 @@ from numpy import double
 # from main import cached_marketcap_ohlc_data, cached_current_marketcap_candle, cached_symbols_ohlc_data, CANDLE_CACHE_PERIODS
 from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS
 
+# OHLC
 TIMESTAMP = 't'
 OPEN = 'o'
 CLOSE = 'c'
@@ -16,12 +17,15 @@ HIGH = 'h'
 LOW = 'l'
 VOLUME = 'v'
 
+SYMBOL = 'symbol'
+
 
 def remove_usdt(symbols: Union[list, str]) -> Union[str, List[str]]:
     if isinstance(symbols, str):
         try:
             return re.match('(^(.+?)USDT)', symbols).groups()[1].upper()
         except AttributeError as AttrError:
+            # TODO: review this exception
             print(symbols, AttrError)
             pass
     else:
@@ -42,20 +46,14 @@ async def insert_aggtrade_data(db, data_symbol, data):
 
 
 # TODO: take out unwanted USDT pairs... usdc etc etc,.
-def query_usdt_symbols() -> list:
-    usdt_symbols = []
-    binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
-
-    for elem in binance_symbols_price:
-        if "USDT" in elem['symbol']:
-            usdt_symbols.append(elem['symbol'])
-
-    return [element.lower() for element in usdt_symbols]
-
-
 def usdt_symbols_stream(type_of_trade: str, symbols=None) -> list:
     if not symbols:
-        symbols = query_usdt_symbols()
+        symbols = []
+        binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
+
+        for symbol_info in binance_symbols_price:
+            if "USDT" in symbol_info[SYMBOL]:
+                symbols.append(symbol_info[SYMBOL].lower())
     return [f"{symbol}{type_of_trade}" for symbol in symbols]
 
 
@@ -204,13 +202,11 @@ def sp500_multiply_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[f
     sp500_symbols = {}
 
     for idx, symbol_info in enumerate(symbols_information):
-        current_symbol = symbol_info['symbol'].upper()  # normalize symbols to uppercase.
+        current_symbol = symbol_info[SYMBOL].upper()  # normalize symbols to uppercase.
         if current_symbol in symbol_pairs:
             sp500_symbols.update(
                 {current_symbol: {'price': symbol_info['current_price'],
                                   'market_cap': symbol_info['market_cap']}})
-
-    sp500_marketcap = sum([sp500_symbols[elem]['market_cap'] for elem in sp500_symbols])
 
     mulitply_coin_ratio = {}
     for elem in sp500_symbols:

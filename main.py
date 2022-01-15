@@ -1,7 +1,5 @@
 import traceback
-
-import requests
-import re
+import copy
 import data_staging as dts
 from binance import AsyncClient, BinanceSocketManager
 import MongoDB.DBactions as mongo
@@ -10,9 +8,12 @@ import logging
 import time
 
 
-class QueueOverflow(Exception): pass
+class QueueOverflow(Exception):
+    pass
+
 
 logging.basicConfig(level=logging.DEBUG)
+
 
 SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LUNAUSDT',
                             'DOGEUSDT',
@@ -25,29 +26,111 @@ SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT
                             'LRCUSDT']
 
 
+class Cache:
+
+    _cached_coins_volume = {}
+    _cached_coins_moment_price = {}
+    _cached_marketcap_coins_value = {}
+    _cached_marketcap_sum = 0
+
+    _cached_marketcap_latest_timestamp = 0
+    _cached_marketcap_current_ohlc = {'t': 0, 'h': 0, 'o': 0, 'l': 999999999999999, 'c': 0}
+    _cached_coins_current_ohlcs = {}
+
+    _cached_marketcap_ohlc_data = {}
+    _cached_coins_ohlc_data = {}
 
 
-cached_coins_volume = {}
-cached_coins_moment_price = {}
-cached_marketcap_coins_value = {}
-cached_marketcap_sum = 0
+    @property
+    def coins_volume(self):
+        return copy.deepcopy(self._cached_coins_volume)
 
-cached_marketcap_latest_timestamp = 0
-cached_marketcap_current_ohlc = {'t': 0, 'h': 0, 'o': 0, 'l': 999999999999999, 'c': 0}
-cached_coins_current_ohlcs = {}
+    @coins_volume.setter
+    def coins_volume(self, value):
+        self._cached_coins_volume = value
 
-cached_marketcap_ohlc_data = {}
-cached_coins_ohlc_data = {}
+
+    @property
+    def coins_moment_price(self):
+        return copy.deepcopy(self._cached_coins_moment_price)
+
+    @coins_moment_price.setter
+    def coins_moment_price(self, value):
+        self._cached_coins_moment_price = value
+
+
+    @property
+    def marketcap_coins_value(self):
+        return copy.deepcopy(self._cached_marketcap_coins_value)
+
+    @marketcap_coins_value.setter
+    def marketcap_coins_value(self, value):
+        self._cached_marketcap_coins_value = value
+
+
+    @property
+    def marketcap_sum(self):
+        return self._cached_marketcap_sum
+
+    @marketcap_sum.setter
+    def marketcap_sum(self, value):
+        self._cached_marketcap_sum = value
+
+
+    @property
+    def marketcap_latest_timestamp(self):
+        return self._cached_marketcap_latest_timestamp
+
+    @marketcap_latest_timestamp.setter
+    def marketcap_latest_timestamp(self, value):
+        self._cached_marketcap_latest_timestamp = value
+
+    @property
+    def marketcap_current_ohlc(self):
+        return copy.deepcopy(self._cached_marketcap_current_ohlc)
+
+    @marketcap_current_ohlc.setter
+    def marketcap_current_ohlc(self, value):
+        self._cached_marketcap_current_ohlc = value
+
+
+    @property
+    def coins_current_ohlcs(self):
+        return copy.deepcopy(self._cached_coins_current_ohlcs)
+
+    @coins_current_ohlcs.setter
+    def coins_current_ohlcs(self, value):
+        self._cached_coins_current_ohlcs = value
+
+
+    @property
+    def marketcap_ohlc_data(self):
+        return copy.deepcopy(self._cached_marketcap_ohlc_data)
+
+    @marketcap_ohlc_data.setter
+    def marketcap_ohlc_data(self, value):
+        self._cached_marketcap_ohlc_data = value
+
+
+    @property
+    def coins_ohlc_data(self):
+        return copy.deepcopy(self._cached_coins_ohlc_data)
+
+    @coins_ohlc_data.setter
+    def coins_ohlc_data(self, value):
+        self._cached_coins_ohlc_data = value
+
 
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
                                "markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=1&sparkline=false"
 
 CANDLESTICK_WS = "kline"
-CANDLESTICKS_ONE_MINUTE_WS = "@kline_1m"
+CANDLESTICKS_ONE_MINUTE_WS = f"@{CANDLESTICK_WS}_1m"
 AGGREGATED_TRADE_WS = "@aggTrade"
 OHLC_CACHE_PERIODS = 3  # This value will be 70.
 REL_STRENGTH_PERIODS = 2  # This value will be 15.
 abc = []
+
 
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, coin_ratio):
     time_counter = int(time.time())
@@ -59,39 +142,34 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
                     cached_coins_volume, cached_coins_moment_price, cached_marketcap_latest_timestamp, \
                     cached_marketcap_coins_value, cached_marketcap_current_ohlc, cached_marketcap_sum
 
-                cached_coins_current_ohlcs_copy = cached_coins_current_ohlcs.copy()
-                cached_coins_ohlc_data_copy = cached_coins_ohlc_data.copy()
-                cached_marketcap_ohlc_data_copy = cached_marketcap_ohlc_data.copy()
-                cached_coins_volume_copy = cached_coins_volume.copy()
-                cached_coins_moment_price_copy = cached_coins_moment_price.copy()
-                cached_marketcap_coins_value_copy = cached_marketcap_coins_value.copy()
-                cached_marketcap_current_ohlc_copy = cached_marketcap_current_ohlc.copy()
+                cache = Cache()
+
 
                 ws_trade = await tscm.recv()
-                if int(time.time()) > time_counter + 2 and cached_marketcap_latest_timestamp > 0:
+                if int(time.time()) > time_counter + 2 and cache.marketcap_latest_timestamp > 0:
                     time_counter += 2
                     cached_marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
-                        cached_marketcap_current_ohlc_copy, cached_marketcap_latest_timestamp, cached_marketcap_sum)
-                    if len(cached_marketcap_ohlc_data_copy) == OHLC_CACHE_PERIODS:
-                        marketcap_relative_atr = dts.calculate_relative_atr(cached_marketcap_ohlc_data_copy)
-                        for coin_ohlc_data in cached_coins_ohlc_data_copy.items():
+                        cache.marketcap_current_ohlc, cache.marketcap_latest_timestamp, cache.marketcap_latest_timestamp)
+                    if len(cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
+                        marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
+                        for coin_ohlc_data in cache.coins_ohlc_data.items():
                             if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
-                                coin_rel_strength = dts.calculate_relative_strength(coin_ohlc_data[1], marketcap_relative_atr, cached_marketcap_ohlc_data_copy)
+                                coin_rel_strength = dts.calculate_relative_strength(coin_ohlc_data[1], marketcap_relative_atr, cache.marketcap_ohlc_data)
 
                                 abc.append(coin_rel_strength)
 
 
                     #TODO: insert in db RS,Volume,price
 
-                    cached_coins_volume = {}
+                    cache.coins_volume = {}
 
                 if CANDLESTICK_WS in ws_trade['stream']:
 
-                    cached_coins_current_ohlcs, cached_coins_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp = \
-                        await dts.transform_candles(cached_coins_current_ohlcs_copy, ws_trade['data']['k'], candlestick_db,
-                                                    cached_coins_ohlc_data_copy, cached_marketcap_ohlc_data_copy,
-                                                    cached_marketcap_current_ohlc_copy,
-                                                    cached_marketcap_latest_timestamp, OHLC_CACHE_PERIODS)
+                    cache.coins_current_ohlcs, cache.coins_ohlc_data, cache.marketcap_ohlc_data, cache.marketcap_latest_timestamp = \
+                        await dts.transform_candles(cache.coins_current_ohlcs, ws_trade['data']['k'], candlestick_db,
+                                                    cache.coins_ohlc_data, cache.marketcap_ohlc_data,
+                                                    cache.marketcap_current_ohlc,
+                                                    cache.marketcap_latest_timestamp, OHLC_CACHE_PERIODS)
 
 
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
@@ -103,16 +181,16 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
 
                     if symbol_pair in SP500_SYMBOLS_USDT_PAIRS:
                         coin_symbol = dts.remove_usdt(symbol_pair)
-                        cached_coins_moment_price = dts.update_cached_coins_values(
-                            cached_coins_moment_price_copy, coin_symbol, coin_moment_price)
+                        cache.coins_moment_price = dts.update_cached_coins_values(
+                            cache.coins_moment_price, coin_symbol, coin_moment_price)
 
                         cached_marketcap_coins_value = dts.update_cached_marketcap_coins_value(
-                            cached_marketcap_coins_value_copy, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
+                            cache.marketcap_coins_value, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
 
                         cached_marketcap_sum = sum(list(cached_marketcap_coins_value.values()))
 
                         cached_coins_volume = dts.update_cached_coin_volumes(
-                            cached_coins_volume_copy, coin_symbol, coin_moment_trade_quantity)
+                            cache.coins_volume, coin_symbol, coin_moment_trade_quantity)
 
                     await dts.insert_aggtrade_data(ta_lines_db, symbol_pair,
                                                    dts.clean_data(aggtrade_data, 'E', 'p', 'q'))
@@ -133,8 +211,7 @@ async def main():
     coin_normalized_ratio = dts.sp500_multiply_usdt_ratio(dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS),
                                                           coingecko_marketcap_api_link)
 
-    binance_client = await AsyncClient.create()
-    bm = BinanceSocketManager(binance_client)
+    bm = BinanceSocketManager(await AsyncClient.create())
 
     while True:
         try:
@@ -145,7 +222,7 @@ async def main():
         except Exception as e:
             if QueueOverflow:
                 pass
-        print("ABC")
+        print("here!!!")
 
 
 # TODO: clean symbols that start with usdt and not finish with them, acho que é um erro do binance... mas a variavel das moedas
