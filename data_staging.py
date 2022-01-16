@@ -20,7 +20,7 @@ VOLUME = 'v'
 SYMBOL = 'symbol'
 
 
-def remove_usdt(symbols: Union[list, str]) -> Union[str, List[str]]:
+def remove_usdt(symbols: Union[List[str], str]):
     if isinstance(symbols, str):
         try:
             return re.match('(^(.+?)USDT)', symbols).groups()[1].upper()
@@ -40,62 +40,48 @@ def clean_data(data, *args):
     return data_keys
 
 
-async def insert_aggtrade_data(db, data_symbol, data):
-    aggtrade_symbol_data = {data_symbol: data}
-    await mongo.insert_in_db(db, aggtrade_symbol_data)
+async def insert_aggtrade_data(db, data_symbol, aggtrade_data):
+    await mongo.insert_in_db(db, {data_symbol: clean_data(aggtrade_data, 'E', 'p', 'q')})
 
 
-# TODO: take out unwanted USDT pairs... usdc etc etc,.
-def usdt_symbols_stream(type_of_trade: str, symbols=None) -> list:
-    if not symbols:
-        symbols = []
-        binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
+def usdt_symbols_stream(type_of_trade: str) -> list:
+    binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
 
-        for symbol_info in binance_symbols_price:
-            if "USDT" in symbol_info[SYMBOL]:
-                symbols.append(symbol_info[SYMBOL].lower())
-    return [f"{symbol}{type_of_trade}" for symbol in symbols]
+    symbols = []
+    for symbol_info in binance_symbols_price:
+        if "USDT" in symbol_info[SYMBOL]:
+            symbols.append(symbol_info[SYMBOL])
+    return [f"{symbol.lower()}{type_of_trade}" for symbol in symbols]
 
 
-async def transform_candles(cached_current_ohlcs: dict,
-                            trade_data: dict,
-                            candlestick_db,
-                            cached_symbols_ohlc_data: dict,
-                            cached_marketcap_ohlc_data: dict,
-                            cached_current_marketcap_ohlc: dict,
-                            cached_marketcap_latest_timestamp: int,
-                            ohlc_periods: int):
-    ohlc_trade_data = {trade_data['s']: clean_data(trade_data, 't', 'v', 'o', 'h', 'l', 'c')}
+async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, mongodb, symbols_ohlc_data: dict,
+                                    marketcap_ohlc_data: dict, current_marketcap_ohlc: dict, marketcap_latest_timestamp: int):
 
+    ohlc_trade_data = {ws_trade_data['s']: clean_data(ws_trade_data, 't', 'v', 'o', 'h', 'l', 'c')}
     symbol_pair = list(ohlc_trade_data.keys())[0]
 
-    if symbol_pair not in cached_current_ohlcs:
-        cached_current_ohlcs.update(ohlc_trade_data)
+    if symbol_pair not in current_ohlcs:
+        current_ohlcs.update(ohlc_trade_data)
 
-    cached_current_ohlcs[symbol_pair] = update_current_symbol_ohlc(cached_current_ohlcs[symbol_pair],
-                                                                   ohlc_trade_data[symbol_pair])
+    current_ohlcs[symbol_pair] = update_current_symbol_ohlc(current_ohlcs[symbol_pair],
+                                                            ohlc_trade_data[symbol_pair])
 
     # Candle timeframe changed, time to write candle value into DB and reset symbol value.
-    if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_current_ohlcs[symbol_pair][TIMESTAMP]:
-        new_ohlc_data = {symbol_pair: cached_current_ohlcs[symbol_pair]}
+    if ohlc_trade_data[symbol_pair][TIMESTAMP] > current_ohlcs[symbol_pair][TIMESTAMP]:
+        new_ohlc_data = {symbol_pair: current_ohlcs[symbol_pair]}
 
-        await mongo.insert_in_db(candlestick_db, new_ohlc_data)
-        del cached_current_ohlcs[symbol_pair]
-        cached_symbols_ohlc_data = update_cached_symbols_ohlc_data(cached_symbols_ohlc_data,
-                                                                   new_ohlc_data,
-                                                                   ohlc_periods)
+        await mongo.insert_in_db(mongodb, new_ohlc_data)
+        del current_ohlcs[symbol_pair]
+        symbols_ohlc_data = update_cached_symbols_ohlc_data(symbols_ohlc_data,
+                                                            new_ohlc_data,
+                                                            OHLC_CACHE_PERIODS)
 
-        if ohlc_trade_data[symbol_pair][TIMESTAMP] > cached_marketcap_latest_timestamp:
-            cached_marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]
-            if cached_marketcap_latest_timestamp > 0 and cached_current_marketcap_ohlc['t'] > 0:
-                cached_marketcap_ohlc_data = update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data,
-                                                                               cached_current_marketcap_ohlc,
-                                                                               ohlc_periods)
+        if ohlc_trade_data[symbol_pair][TIMESTAMP] > marketcap_latest_timestamp:
+            marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]  # Update marketcap latest timestamp
+            if current_marketcap_ohlc[TIMESTAMP] > 0:
+                marketcap_ohlc_data = update_cached_marketcap_ohlc_data(marketcap_ohlc_data, current_marketcap_ohlc)
 
-            # dts.insert_mktcap_candle_db()
-            # reset mktcap_candle
-
-    return cached_current_ohlcs, cached_symbols_ohlc_data, cached_marketcap_ohlc_data, cached_marketcap_latest_timestamp
+    return current_ohlcs, symbols_ohlc_data, marketcap_ohlc_data, marketcap_latest_timestamp
 
 
 def update_current_symbol_ohlc(current_symbol_ohlc, ohlc_trade_data):
@@ -135,22 +121,21 @@ def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_
     return ohlc_data
 
 
-def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cached_current_marketcap_candle: dict,
-                                      candle_periods: int) -> dict:
+def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cached_current_marketcap_candle: dict) -> dict:
     if not cached_marketcap_ohlc_data_copy:
         cached_marketcap_ohlc_data_copy.update({1: cached_current_marketcap_candle})
         return cached_marketcap_ohlc_data_copy
 
     last_index = max(list(cached_marketcap_ohlc_data_copy))
 
-    if last_index < candle_periods:
+    if last_index < OHLC_CACHE_PERIODS:
         cached_marketcap_ohlc_data_copy.update({last_index + 1: cached_current_marketcap_candle})
     else:
         for elem in cached_marketcap_ohlc_data_copy:
             if not elem == last_index:
                 cached_marketcap_ohlc_data_copy[elem] = cached_marketcap_ohlc_data_copy[elem + 1]
             else:
-                cached_marketcap_ohlc_data_copy.update({candle_periods: cached_current_marketcap_candle})
+                cached_marketcap_ohlc_data_copy.update({OHLC_CACHE_PERIODS: cached_current_marketcap_candle})
 
     return cached_marketcap_ohlc_data_copy
 
@@ -190,29 +175,24 @@ def update_cached_coin_volumes(cached_coins_volume: dict, coin_symbol: str, coin
     return cached_coins_volume
 
 
-def update_cached_marketcap_coins_value(cached_marketcap_coins_value: dict, coin_symbol: str, coin_moment_price: float, coin_ratio: float) -> dict:
+def update_cached_marketcap_coins_value(cached_marketcap_coins_value: dict,
+                                        coin_symbol: str, coin_moment_price: float,
+                                        coin_ratio: float) -> dict:
     cached_marketcap_coins_value.update({coin_symbol: (float(coin_moment_price) * coin_ratio)})
 
     return cached_marketcap_coins_value
 
 
-def sp500_multiply_usdt_ratio(symbol_pairs: dict, api: str) -> Dict[Any, Union[float, Any]]:
-    symbols_information = requests.get(api).json()
+def get_coin_fund_ratio(symbol_pairs: dict, symbols_information: dict):
+    coin_ratio = {}
 
-    sp500_symbols = {}
-
-    for idx, symbol_info in enumerate(symbols_information):
-        current_symbol = symbol_info[SYMBOL].upper()  # normalize symbols to uppercase.
+    for symbol_info in symbols_information:
+        current_symbol = symbol_info[SYMBOL].upper()
         if current_symbol in symbol_pairs:
-            sp500_symbols.update(
-                {current_symbol: {'price': symbol_info['current_price'],
-                                  'market_cap': symbol_info['market_cap']}})
+            coin_ratio.update({current_symbol: symbol_info['market_cap'] / symbol_info['current_price']})
 
-    mulitply_coin_ratio = {}
-    for elem in sp500_symbols:
-        mulitply_coin_ratio.update({elem: sp500_symbols[elem]['market_cap'] / sp500_symbols[elem]['price']})
+    return coin_ratio
 
-    return mulitply_coin_ratio
 
 
 def calculate_relative_atr(ohlc_data):
@@ -222,20 +202,20 @@ def calculate_relative_atr(ohlc_data):
         low.append(float(item[1][LOW]))
         close.append(float(item[1][CLOSE]))
 
-    np_high = np.array(high)
-    np_low = np.array(low)
-    np_close = np.array(close)
-    atr = talib.ATR(np_high, np_low, np_close, timeperiod=OHLC_CACHE_PERIODS-1)
+    average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[REL_STRENGTH_PERIODS]
 
-    return double(atr[OHLC_CACHE_PERIODS-1]) / double(ohlc_data[len(ohlc_data) - 1]['c']) * 100
+    return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
 
 
 def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data):
     coin_relative_atr = calculate_relative_atr(coin_ohlc_data)
-    coin_change_percentage = (float(coin_ohlc_data[len(coin_ohlc_data)]['o']) /
-                              float(coin_ohlc_data[len(coin_ohlc_data) - REL_STRENGTH_PERIODS]['o']) - 1) * 100
-    market_change_percentage = (float(cached_marketcap_ohlc_data[len(cached_marketcap_ohlc_data)]['o']) /
-                                float(cached_marketcap_ohlc_data[len(cached_marketcap_ohlc_data) - REL_STRENGTH_PERIODS]['o']) - 1) * 100
+
+    last_element = len(coin_ohlc_data)
+    first_element = len(coin_ohlc_data) - REL_STRENGTH_PERIODS
+    coin_change_percentage = (float(coin_ohlc_data[last_element][OPEN]) /
+                              float(coin_ohlc_data[first_element][OPEN]) - 1) * 100
+    market_change_percentage = (float(cached_marketcap_ohlc_data[last_element][OPEN]) /
+                                float(cached_marketcap_ohlc_data[first_element][OPEN]) - 1) * 100
 
     return (coin_change_percentage - market_change_percentage) / (coin_relative_atr / marketcap_rel_atr)
 

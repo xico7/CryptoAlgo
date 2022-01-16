@@ -1,3 +1,5 @@
+import copy
+
 import motor.motor_asyncio
 import asyncio
 from pymongo import MongoClient
@@ -31,10 +33,10 @@ def connect_to_TA_lines_db():
     return db
 
 
-async def insert_in_db(db, data):
+async def insert_in_db(db, data: dict):
+    data = copy.deepcopy(data)
 
     db.create_collection(list(data.keys())[0])
-
     database = db.get_collection(list(data.keys())[0])
     await database.insert_one(data)
 

@@ -1,5 +1,9 @@
 import traceback
 import copy
+
+import requests
+from pymongo.errors import ServerSelectionTimeoutError
+from datetime import datetime
 import data_staging as dts
 from binance import AsyncClient, BinanceSocketManager
 import MongoDB.DBactions as mongo
@@ -127,34 +131,31 @@ coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
 CANDLESTICK_WS = "kline"
 CANDLESTICKS_ONE_MINUTE_WS = f"@{CANDLESTICK_WS}_1m"
 AGGREGATED_TRADE_WS = "@aggTrade"
-OHLC_CACHE_PERIODS = 3  # This value will be 70.
-REL_STRENGTH_PERIODS = 2  # This value will be 15.
+OHLC_CACHE_PERIODS = 70  # This value will be 70.
+REL_STRENGTH_PERIODS = OHLC_CACHE_PERIODS - 1  # This value will be 15. #TODO: if this is always OHLC-1 just make it equal to that
 abc = []
 
 
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, coin_ratio):
     time_counter = int(time.time())
+    cache = Cache()
 
     async with multisocket_candle as tscm:
         while True:
             try:
-                global cached_coins_current_ohlcs, cached_coins_ohlc_data, cached_marketcap_ohlc_data, \
-                    cached_coins_volume, cached_coins_moment_price, cached_marketcap_latest_timestamp, \
-                    cached_marketcap_coins_value, cached_marketcap_current_ohlc, cached_marketcap_sum
-
-                cache = Cache()
-
 
                 ws_trade = await tscm.recv()
+
                 if int(time.time()) > time_counter + 2 and cache.marketcap_latest_timestamp > 0:
                     time_counter += 2
-                    cached_marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
+                    cache.marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
                         cache.marketcap_current_ohlc, cache.marketcap_latest_timestamp, cache.marketcap_latest_timestamp)
                     if len(cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
                         marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
                         for coin_ohlc_data in cache.coins_ohlc_data.items():
                             if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
-                                coin_rel_strength = dts.calculate_relative_strength(coin_ohlc_data[1], marketcap_relative_atr, cache.marketcap_ohlc_data)
+                                coin_rel_strength = dts.calculate_relative_strength(
+                                    coin_ohlc_data[1], marketcap_relative_atr, cache.marketcap_ohlc_data)
 
                                 abc.append(coin_rel_strength)
 
@@ -166,63 +167,70 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
                 if CANDLESTICK_WS in ws_trade['stream']:
 
                     cache.coins_current_ohlcs, cache.coins_ohlc_data, cache.marketcap_ohlc_data, cache.marketcap_latest_timestamp = \
-                        await dts.transform_candles(cache.coins_current_ohlcs, ws_trade['data']['k'], candlestick_db,
-                                                    cache.coins_ohlc_data, cache.marketcap_ohlc_data,
-                                                    cache.marketcap_current_ohlc,
-                                                    cache.marketcap_latest_timestamp, OHLC_CACHE_PERIODS)
+                        await dts.update_ohlc_cached_values(cache.coins_current_ohlcs, ws_trade['data']['k'], candlestick_db,
+                                                            cache.coins_ohlc_data, cache.marketcap_ohlc_data,
+                                                            cache.marketcap_current_ohlc,
+                                                            cache.marketcap_latest_timestamp)
 
 
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
 
-                    aggtrade_data = ws_trade['data']
-                    symbol_pair = ws_trade['data']['s']
-                    coin_moment_price = aggtrade_data['p']
-                    coin_moment_trade_quantity = aggtrade_data['q']
+                    aggtrade_data, symbol_pair = ws_trade['data'], ws_trade['data']['s']
+                    coin_moment_price, coin_moment_trade_quantity = aggtrade_data['p'], aggtrade_data['q']
 
                     if symbol_pair in SP500_SYMBOLS_USDT_PAIRS:
                         coin_symbol = dts.remove_usdt(symbol_pair)
                         cache.coins_moment_price = dts.update_cached_coins_values(
                             cache.coins_moment_price, coin_symbol, coin_moment_price)
 
-                        cached_marketcap_coins_value = dts.update_cached_marketcap_coins_value(
+                        cache.marketcap_coins_value = dts.update_cached_marketcap_coins_value(
                             cache.marketcap_coins_value, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
 
-                        cached_marketcap_sum = sum(list(cached_marketcap_coins_value.values()))
+                        cache.marketcap_sum = sum(list(cache.marketcap_coins_value.values()))
 
-                        cached_coins_volume = dts.update_cached_coin_volumes(
+                        cache.coins_volume = dts.update_cached_coin_volumes(
                             cache.coins_volume, coin_symbol, coin_moment_trade_quantity)
 
-                    await dts.insert_aggtrade_data(ta_lines_db, symbol_pair,
-                                                   dts.clean_data(aggtrade_data, 'E', 'p', 'q'))
+                    await dts.insert_aggtrade_data(ta_lines_db, symbol_pair, aggtrade_data)
 
-                print(f"{time.time()} , {ws_trade['data']['E']} , calc")
-
+                print(f"{int(time.time())} , {int(str(ws_trade['data']['E'])[:-3])} , calc, "
+                      f"segundos de diferença: '{int(time.time()) - int(str(ws_trade['data']['E'])[:-3])}'")
+                #print(datetime.now().time())
+            except ServerSelectionTimeoutError as e:
+                if "localhost:27017" in e.args[0]:
+                    logging.exception("Cannot connect to mongo DB")
+                    raise
+                else:
+                    logging.exception("Unexpected error")
+                    raise
             except Exception as e:
-                traceback.print_exc()
-                print(f"{e}, {ws_trade}")
                 if ws_trade['m'] == 'Queue overflow. Message not filled':
                     raise QueueOverflow
+
+                traceback.print_exc()
+                print(f"{e}, {ws_trade}")
+
                 exit(1)
 
 
 async def main():
     candlestick_db = mongo.connect_to_usdt_candlestick_db()
     ta_lines_db = mongo.connect_to_TA_lines_db()
-    coin_normalized_ratio = dts.sp500_multiply_usdt_ratio(dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS),
-                                                          coingecko_marketcap_api_link)
 
     bm = BinanceSocketManager(await AsyncClient.create())
 
     while True:
         try:
-            await binance_to_mongodb(bm.multiplex_socket(
-                dts.usdt_symbols_stream(CANDLESTICKS_ONE_MINUTE_WS) +
-                dts.usdt_symbols_stream(AGGREGATED_TRADE_WS)),
-                candlestick_db, ta_lines_db, coin_normalized_ratio)
-        except Exception as e:
-            if QueueOverflow:
+            await binance_to_mongodb(
+                bm.multiplex_socket(dts.usdt_symbols_stream(CANDLESTICKS_ONE_MINUTE_WS) +
+                                    dts.usdt_symbols_stream(AGGREGATED_TRADE_WS)),
+                candlestick_db,
+                ta_lines_db,
+                dts.get_coin_fund_ratio( dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS), requests.get(coingecko_marketcap_api_link).json()))
+        except QueueOverflow as e:
                 pass
-        print("here!!!")
+        except Exception as e:
+            exit(1)
 
 
 # TODO: clean symbols that start with usdt and not finish with them, acho que é um erro do binance... mas a variavel das moedas
