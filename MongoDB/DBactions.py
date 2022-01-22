@@ -34,9 +34,19 @@ def connect_to_TA_lines_db():
 
 
 async def insert_in_db(db, data: dict):
-    data = copy.deepcopy(data)
+    pass
+    # data = copy.deepcopy(data)
+    #
+    # db.create_collection(list(data.keys())[0])
+    # database = db.get_collection(list(data.keys())[0])
+    # await database.insert_one(data)
 
-    db.create_collection(list(data.keys())[0])
-    database = db.get_collection(list(data.keys())[0])
-    await database.insert_one(data)
+    for key in list(data.keys()):
+        database = db.get_collection(key)
+        await database.insert_many(data[key])
+
+
+
+
+
 

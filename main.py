@@ -16,8 +16,7 @@ class QueueOverflow(Exception):
     pass
 
 
-logging.basicConfig(level=logging.DEBUG)
-
+logging.basicConfig(level=logging.INFO)
 
 SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LUNAUSDT',
                             'DOGEUSDT',
@@ -31,7 +30,6 @@ SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT
 
 
 class Cache:
-
     _cached_coins_volume = {}
     _cached_coins_moment_price = {}
     _cached_marketcap_coins_value = {}
@@ -44,33 +42,49 @@ class Cache:
     _cached_marketcap_ohlc_data = {}
     _cached_coins_ohlc_data = {}
 
+    _cached_aggtrade_data = {}
+
+    @property
+    def aggtrade_data(self):
+        return self._cached_aggtrade_data
+
+    @aggtrade_data.setter
+    def aggtrade_data(self, value):
+        if value == {}:
+            self._cached_aggtrade_data = {}
+            return
+
+        coin_symbol = list(value.keys())[0]
+        coin_data = list(value.values())[0]
+
+        if coin_symbol not in self._cached_aggtrade_data:
+            self._cached_aggtrade_data.update({coin_symbol: [coin_data]})
+        else:
+            self._cached_aggtrade_data[coin_symbol].append(coin_data)
 
     @property
     def coins_volume(self):
-        return copy.deepcopy(self._cached_coins_volume)
+        return self._cached_coins_volume
 
     @coins_volume.setter
     def coins_volume(self, value):
         self._cached_coins_volume = value
 
-
     @property
     def coins_moment_price(self):
-        return copy.deepcopy(self._cached_coins_moment_price)
+        return self._cached_coins_moment_price
 
     @coins_moment_price.setter
     def coins_moment_price(self, value):
         self._cached_coins_moment_price = value
 
-
     @property
     def marketcap_coins_value(self):
-        return copy.deepcopy(self._cached_marketcap_coins_value)
+        return self._cached_marketcap_coins_value
 
     @marketcap_coins_value.setter
     def marketcap_coins_value(self, value):
         self._cached_marketcap_coins_value = value
-
 
     @property
     def marketcap_sum(self):
@@ -79,7 +93,6 @@ class Cache:
     @marketcap_sum.setter
     def marketcap_sum(self, value):
         self._cached_marketcap_sum = value
-
 
     @property
     def marketcap_latest_timestamp(self):
@@ -91,34 +104,31 @@ class Cache:
 
     @property
     def marketcap_current_ohlc(self):
-        return copy.deepcopy(self._cached_marketcap_current_ohlc)
+        return self._cached_marketcap_current_ohlc
 
     @marketcap_current_ohlc.setter
     def marketcap_current_ohlc(self, value):
         self._cached_marketcap_current_ohlc = value
 
-
     @property
     def coins_current_ohlcs(self):
-        return copy.deepcopy(self._cached_coins_current_ohlcs)
+        return self._cached_coins_current_ohlcs
 
     @coins_current_ohlcs.setter
     def coins_current_ohlcs(self, value):
         self._cached_coins_current_ohlcs = value
 
-
     @property
     def marketcap_ohlc_data(self):
-        return copy.deepcopy(self._cached_marketcap_ohlc_data)
+        return self._cached_marketcap_ohlc_data
 
     @marketcap_ohlc_data.setter
     def marketcap_ohlc_data(self, value):
         self._cached_marketcap_ohlc_data = value
 
-
     @property
     def coins_ohlc_data(self):
-        return copy.deepcopy(self._cached_coins_ohlc_data)
+        return self._cached_coins_ohlc_data
 
     @coins_ohlc_data.setter
     def coins_ohlc_data(self, value):
@@ -128,10 +138,11 @@ class Cache:
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
                                "markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=1&sparkline=false"
 
+AGGTRADE_PYCACHE = 1000
 CANDLESTICK_WS = "kline"
 CANDLESTICKS_ONE_MINUTE_WS = f"@{CANDLESTICK_WS}_1m"
 AGGREGATED_TRADE_WS = "@aggTrade"
-OHLC_CACHE_PERIODS = 70  # This value will be 70.
+OHLC_CACHE_PERIODS = 3  # This value will be 70.
 REL_STRENGTH_PERIODS = OHLC_CACHE_PERIODS - 1  # This value will be 15. #TODO: if this is always OHLC-1 just make it equal to that
 abc = []
 
@@ -139,17 +150,17 @@ abc = []
 async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, coin_ratio):
     time_counter = int(time.time())
     cache = Cache()
-
+    COUNTER = 0
     async with multisocket_candle as tscm:
         while True:
             try:
-
                 ws_trade = await tscm.recv()
 
                 if int(time.time()) > time_counter + 2 and cache.marketcap_latest_timestamp > 0:
                     time_counter += 2
                     cache.marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
-                        cache.marketcap_current_ohlc, cache.marketcap_latest_timestamp, cache.marketcap_latest_timestamp)
+                        cache.marketcap_current_ohlc, cache.marketcap_latest_timestamp,
+                        cache.marketcap_latest_timestamp)
                     if len(cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
                         marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
                         for coin_ohlc_data in cache.coins_ohlc_data.items():
@@ -159,22 +170,20 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
 
                                 abc.append(coin_rel_strength)
 
-
-                    #TODO: insert in db RS,Volume,price
+                    # TODO: insert in db RS,Volume,price
 
                     cache.coins_volume = {}
 
                 if CANDLESTICK_WS in ws_trade['stream']:
-
                     cache.coins_current_ohlcs, cache.coins_ohlc_data, cache.marketcap_ohlc_data, cache.marketcap_latest_timestamp = \
-                        await dts.update_ohlc_cached_values(cache.coins_current_ohlcs, ws_trade['data']['k'], candlestick_db,
+                        await dts.update_ohlc_cached_values(cache.coins_current_ohlcs, ws_trade['data']['k'],
+                                                            candlestick_db,
                                                             cache.coins_ohlc_data, cache.marketcap_ohlc_data,
                                                             cache.marketcap_current_ohlc,
                                                             cache.marketcap_latest_timestamp)
 
-
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
-
+                    COUNTER += 1
                     aggtrade_data, symbol_pair = ws_trade['data'], ws_trade['data']['s']
                     coin_moment_price, coin_moment_trade_quantity = aggtrade_data['p'], aggtrade_data['q']
 
@@ -191,11 +200,16 @@ async def binance_to_mongodb(multisocket_candle, candlestick_db, ta_lines_db, co
                         cache.coins_volume = dts.update_cached_coin_volumes(
                             cache.coins_volume, coin_symbol, coin_moment_trade_quantity)
 
-                    await dts.insert_aggtrade_data(ta_lines_db, symbol_pair, aggtrade_data)
+                    cache.aggtrade_data = {symbol_pair: dts.clean_data(aggtrade_data, 'E', 'p', 'q')}
 
-                print(f"{int(time.time())} , {int(str(ws_trade['data']['E'])[:-3])} , calc, "
-                      f"segundos de diferença: '{int(time.time()) - int(str(ws_trade['data']['E'])[:-3])}'")
-                #print(datetime.now().time())
+                    if COUNTER > AGGTRADE_PYCACHE:
+                        await dts.insert_aggtrade_data(ta_lines_db, cache.aggtrade_data)
+
+                        cache.aggtrade_data = {}
+
+                        COUNTER -= AGGTRADE_PYCACHE
+
+
             except ServerSelectionTimeoutError as e:
                 if "localhost:27017" in e.args[0]:
                     logging.exception("Cannot connect to mongo DB")
@@ -226,9 +240,10 @@ async def main():
                                     dts.usdt_symbols_stream(AGGREGATED_TRADE_WS)),
                 candlestick_db,
                 ta_lines_db,
-                dts.get_coin_fund_ratio( dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS), requests.get(coingecko_marketcap_api_link).json()))
+                dts.get_coin_fund_ratio(dts.remove_usdt(SP500_SYMBOLS_USDT_PAIRS),
+                                        requests.get(coingecko_marketcap_api_link).json()))
         except QueueOverflow as e:
-                pass
+            pass
         except Exception as e:
             exit(1)
 

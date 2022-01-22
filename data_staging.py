@@ -40,9 +40,11 @@ def clean_data(data, *args):
     return data_keys
 
 
-async def insert_aggtrade_data(db, data_symbol, aggtrade_data):
-    await mongo.insert_in_db(db, {data_symbol: clean_data(aggtrade_data, 'E', 'p', 'q')})
+# async def insert_aggtrade_data(db, data_symbol, aggtrade_data):
+#     await mongo.insert_in_db(db, {data_symbol: clean_data(aggtrade_data, 'E', 'p', 'q')})
 
+async def insert_aggtrade_data(db, aggtrade_data):
+    await mongo.insert_in_db(db, aggtrade_data)
 
 def usdt_symbols_stream(type_of_trade: str) -> list:
     binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
@@ -70,7 +72,7 @@ async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, mo
     if ohlc_trade_data[symbol_pair][TIMESTAMP] > current_ohlcs[symbol_pair][TIMESTAMP]:
         new_ohlc_data = {symbol_pair: current_ohlcs[symbol_pair]}
 
-        await mongo.insert_in_db(mongodb, new_ohlc_data)
+        #await mongo.insert_in_db(mongodb, new_ohlc_data)
         del current_ohlcs[symbol_pair]
         symbols_ohlc_data = update_cached_symbols_ohlc_data(symbols_ohlc_data,
                                                             new_ohlc_data,
