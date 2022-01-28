@@ -1,3 +1,4 @@
+import copy
 import re
 from typing import Tuple, Optional, Dict, Any, Union, List
 import requests as requests
@@ -25,9 +26,7 @@ def remove_usdt(symbols: Union[List[str], str]):
         try:
             return re.match('(^(.+?)USDT)', symbols).groups()[1].upper()
         except AttributeError as AttrError:
-            # TODO: review this exception
-            print(symbols, AttrError)
-            pass
+            return None
     else:
         return [re.match('(^(.+?)USDT)', symbol).groups()[1].upper() for symbol in symbols]
 
@@ -44,7 +43,11 @@ def clean_data(data, *args):
 #     await mongo.insert_in_db(db, {data_symbol: clean_data(aggtrade_data, 'E', 'p', 'q')})
 
 async def insert_aggtrade_data(db, aggtrade_data):
-    await mongo.insert_in_db(db, aggtrade_data)
+    await mongo.insert_aggtrade_data_in_db(db, aggtrade_data)
+
+
+async def insert_relative_strength(db, rel_strength):
+    await mongo.insert_relative_strength_in_db(db, rel_strength)
 
 def usdt_symbols_stream(type_of_trade: str) -> list:
     binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
@@ -57,7 +60,7 @@ def usdt_symbols_stream(type_of_trade: str) -> list:
 
 
 async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, mongodb, symbols_ohlc_data: dict,
-                                    marketcap_ohlc_data: dict, current_marketcap_ohlc: dict, marketcap_latest_timestamp: int):
+                                    marketcap_ohlc_data: dict, marketcap_current_ohlc: dict, marketcap_latest_timestamp: int):
 
     ohlc_trade_data = {ws_trade_data['s']: clean_data(ws_trade_data, 't', 'v', 'o', 'h', 'l', 'c')}
     symbol_pair = list(ohlc_trade_data.keys())[0]
@@ -80,8 +83,10 @@ async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, mo
 
         if ohlc_trade_data[symbol_pair][TIMESTAMP] > marketcap_latest_timestamp:
             marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]  # Update marketcap latest timestamp
-            if current_marketcap_ohlc[TIMESTAMP] > 0:
-                marketcap_ohlc_data = update_cached_marketcap_ohlc_data(marketcap_ohlc_data, current_marketcap_ohlc)
+            if marketcap_current_ohlc[TIMESTAMP] > 0 and not marketcap_ohlc_data:
+                marketcap_ohlc_data = copy.deepcopy(update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
+            if marketcap_ohlc_data and (marketcap_ohlc_data[len(marketcap_ohlc_data)][TIMESTAMP] != marketcap_current_ohlc[TIMESTAMP]):
+                marketcap_ohlc_data = copy.deepcopy(update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
 
     return current_ohlcs, symbols_ohlc_data, marketcap_ohlc_data, marketcap_latest_timestamp
 
@@ -102,7 +107,7 @@ def update_current_symbol_ohlc(current_symbol_ohlc, ohlc_trade_data):
     return current_symbol_ohlc
 
 
-def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_periods: int) -> dict:
+def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_periods: int) -> Optional[dict]:
 
     new_ohlc_symbol = list(new_ohlc_data.keys())[0]
     new_ohlc_values = list(new_ohlc_data.values())[0]
@@ -145,7 +150,7 @@ def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cac
 def update_current_marketcap_ohlc_data(marketcap_ohlc: dict, timestamp: int, marketcap_moment_value: dict) -> dict:
     if marketcap_ohlc[TIMESTAMP] != timestamp:
         marketcap_ohlc[TIMESTAMP] = timestamp
-        marketcap_ohlc[OPEN] = marketcap_moment_value
+        marketcap_ohlc[OPEN] = 0
         marketcap_ohlc[HIGH] = marketcap_moment_value
         marketcap_ohlc[CLOSE] = marketcap_moment_value
         marketcap_ohlc[LOW] = marketcap_moment_value
@@ -206,7 +211,13 @@ def calculate_relative_atr(ohlc_data):
 
     average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[REL_STRENGTH_PERIODS]
 
-    return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
+    result = double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
+
+    if result < 0.0001:
+        print("high", high)
+        print("low", low)
+        print("close", close)
+    return result
 
 
 def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data):
@@ -216,10 +227,21 @@ def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_market
     first_element = len(coin_ohlc_data) - REL_STRENGTH_PERIODS
     coin_change_percentage = (float(coin_ohlc_data[last_element][OPEN]) /
                               float(coin_ohlc_data[first_element][OPEN]) - 1) * 100
-    market_change_percentage = (float(cached_marketcap_ohlc_data[last_element][OPEN]) /
-                                float(cached_marketcap_ohlc_data[first_element][OPEN]) - 1) * 100
+    try:
+        market_change_percentage = (float(cached_marketcap_ohlc_data[last_element][OPEN]) /
+                                    float(cached_marketcap_ohlc_data[first_element][OPEN]) - 1) * 100
+    except ZeroDivisionError:
+        market_change_percentage = 0
 
-    return (coin_change_percentage - market_change_percentage) / (coin_relative_atr / marketcap_rel_atr)
+
+    a = (coin_relative_atr / marketcap_rel_atr)
+
+    if a > 15 or a < -15 or a == 0 or (a < 0.00001 and a > 0):
+        print("coin_relative_atr", coin_relative_atr)
+        print("marketcap_rel_atr", marketcap_rel_atr)
+        return 0
+
+    return (coin_change_percentage - market_change_percentage) / a
 
 
     #marketcap_relative_atr

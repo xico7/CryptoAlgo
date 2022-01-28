@@ -20,6 +20,18 @@ def connect_to_usdt_candlestick_db():
     return db
 
 
+def connect_to_RS_db():
+    from motor.motor_asyncio import (
+        AsyncIOMotorClient as MotorClient,
+    )
+
+    # MongoDB client
+    client = MotorClient('mongodb://localhost:27017/Relative_strength')
+
+    db = client.get_default_database()
+
+    return db
+
 def connect_to_TA_lines_db():
     from motor.motor_asyncio import (
         AsyncIOMotorClient as MotorClient,
@@ -33,7 +45,19 @@ def connect_to_TA_lines_db():
     return db
 
 
-async def insert_in_db(db, data: dict):
+async def insert_aggtrade_data_in_db(db, data: dict):
+
+    # data = copy.deepcopy(data)
+    #
+    # db.create_collection(list(data.keys())[0])
+    # database = db.get_collection(list(data.keys())[0])
+    # await database.insert_one(data)
+
+    for key in list(data.keys()):
+        database = db.get_collection(key)
+        database.insert_many(data[key])
+
+async def insert_relative_strength_in_db(db, data: dict):
     pass
     # data = copy.deepcopy(data)
     #
@@ -43,7 +67,7 @@ async def insert_in_db(db, data: dict):
 
     for key in list(data.keys()):
         database = db.get_collection(key)
-        await database.insert_many(data[key])
+        database.insert_many(data[key])
 
 
 
