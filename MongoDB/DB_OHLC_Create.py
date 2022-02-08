@@ -72,8 +72,9 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
     pass
 
 
-def transform_ohlc(open_timestamp, ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
-
+def insert_ohlc_data(open_timestamp, ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
+    """Open timestamp is the last finished candle opening time, exactly what we want for one minute candle but
+    not really whats needed for the other ones where we must add one minute."""
     one_min_in_sec = 60
     five_min_in_sec = one_min_in_sec * 5
     fifteen_min_in_sec = one_min_in_sec * 15

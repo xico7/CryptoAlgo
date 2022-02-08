@@ -33,11 +33,11 @@ def connect_to_ta_lines_db():
     return MotorClient('mongodb://localhost:27017/TA_RS_VOL').get_default_database()
 
 
-async def insert_aggtrade_data(db, data: dict):
+async def duplicate_insert_aggtrade_data(db, data: dict):
     insert_many_in_db(db, data)
 
 
-async def insert_relative_strength(db, data: dict):
+async def duplicate_insert_data_rs_volume_price(db, data: dict):
     insert_many_in_db(db, data)
 
 

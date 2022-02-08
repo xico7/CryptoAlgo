@@ -1,5 +1,6 @@
 import copy
 import re
+import time
 from typing import Optional, Union, List
 import requests as requests
 import MongoDB.DBactions as mongo
@@ -7,7 +8,8 @@ import numpy as np
 import talib
 from numpy import double
 
-from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS
+from MongoDB.DB_OHLC_Create import TIME, RELATIVE_STRENGTH, PRICE
+from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS, RS_CACHE
 
 # OHLC
 TIMESTAMP = 't'
@@ -39,11 +41,11 @@ def clean_data(data, *args):
 
 
 async def insert_aggtrade_data(db, aggtrade_data):
-    await mongo.insert_aggtrade_data(db, aggtrade_data)
+    await mongo.duplicate_insert_aggtrade_data(db, aggtrade_data)
 
 
-async def insert_relative_strength(db, rel_strength):
-    await mongo.insert_relative_strength(db, rel_strength)
+# async def insert_rs_volume_price(db, rel_strength):
+#     await mongo.duplicate_insert_data_rs_volume_price(db, rel_strength)
 
 
 def usdt_symbols_stream(type_of_trade: str) -> list:
@@ -223,3 +225,79 @@ def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_market
     return (coin_change_percentage - market_change_percentage) / atr_quotient
 
 
+def update_relative_strength_cache(marketcap_ohlc_data, coins_ohlc_data,
+                                   coins_volume, coins_moment_price,
+                                   coins_rel_strength, rs_cache_counter,
+                                   rel_strength_db):
+
+
+    marketcap_relative_atr = calculate_relative_atr(marketcap_ohlc_data)
+    for coin_ohlc_data in coins_ohlc_data.items():
+        if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
+            try:
+                get_coin_volume = coins_volume[remove_usdt(coin_ohlc_data[0])]
+                get_coin_moment_price = coins_moment_price[remove_usdt(coin_ohlc_data[0])]
+            except KeyError:
+                continue
+
+            relative_strength = calculate_relative_strength(
+                coin_ohlc_data[1], marketcap_relative_atr,
+                marketcap_ohlc_data)
+            if relative_strength:
+                coins_rel_strength = {coin_ohlc_data[0]:
+                                                {TIME: get_current_time(),
+                                                 RELATIVE_STRENGTH: relative_strength,
+                                                 VOLUME: get_coin_volume,
+                                                 PRICE: get_coin_moment_price}
+                                            }
+
+            rs_cache_counter += 1
+
+            return coins_rel_strength, rs_cache_counter
+
+def get_current_time() -> int:
+    return int(time.time())
+
+
+
+    # marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
+    # for coin_ohlc_data in cache.coins_ohlc_data.items():
+    #     if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
+    #         try:
+    #             get_coin_volume = cache.coins_volume[dts.remove_usdt(coin_ohlc_data[0])]
+    #             get_coin_moment_price = cache.coins_moment_price[dts.remove_usdt(coin_ohlc_data[0])]
+    #         except KeyError:
+    #             continue
+    #
+    #         relative_strength = dts.calculate_relative_strength(
+    #             coin_ohlc_data[1], marketcap_relative_atr,
+    #             cache.marketcap_ohlc_data)
+    #         if relative_strength:
+    #             cache.coins_rel_strength = {coin_ohlc_data[0]:
+    #                                             {TIME: get_current_time(),
+    #                                              RELATIVE_STRENGTH: relative_strength,
+    #                                              VOLUME: get_coin_volume,
+    #                                              PRICE: get_coin_moment_price}
+    #                                         }
+    #
+    #         rs_cache_counter += 1
+    #         cur_time = get_current_time()
+    #         new_minute_ohlc = cur_time % 60 == 0 or (cur_time + 1) % 60 == 0 or (
+    #                 cur_time - 1) % 60 == 0
+    #
+    #         if rs_cache_counter > RS_CACHE or new_minute_ohlc:
+    #             await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db, cache.coins_rel_strength)
+    #             # await dts.insert_rs_volume_price(rel_strength_db, cache.coins_rel_strength)
+    #             cache.coins_rel_strength = {}
+    #             rs_cache_counter = 0
+    #             if new_minute_ohlc:
+    #                 while (cur_time - 3) % 60 != 0:
+    #                     cur_time -= 1
+    #                 last_ohlc_open_timestamp = cur_time - 3
+    #                 mongoDBcreate.insert_ohlc_data(last_ohlc_open_timestamp,
+    #                                              ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
+    #                                              ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
+    #                 # t = Thread(target=mongoDBcreate.insert_ohlc_data, args=(last_ohlc_open_timestamp,
+    #                 #                                                       ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
+    #                 #                                                       ohlc_1h_db, ohlc_4h_db, ohlc_1d_db, ))
+    #                 # t.start()
