@@ -5,14 +5,16 @@ import MongoDB.DBactions as mongo
 # TODO: insert_ohlc_1m takes 10-13 seconds, is or will this be na problem?
 
 TIME = "Time"
-HIGH = 'h'
-LOW = 'l'
-OPEN = 'o'
-CLOSE = 'c'
 PRICE = 'Price'
 RELATIVE_STRENGTH = 'RS'
-VOLUME = 'Volume'
+VOLUME = 'v'
 CLIENT = MongoClient('mongodb://localhost:27017/')
+
+#OHLC
+OPEN = 'o'
+CLOSE = 'c'
+HIGH = 'h'
+LOW = 'l'
 
 ONE_MIN_IN_SEC = 60
 FIVE_MIN_IN_SEC = ONE_MIN_IN_SEC * 5
@@ -50,7 +52,6 @@ def insert_ohlc_1d(open_timestamp, ohlc_1d_db):
 def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_minutes,
                             ohlc_open=OPEN, ohlc_close=CLOSE, ohlc_high=HIGH, ohlc_low=LOW):
     pairs_ohlcs = {}
-    print(time.time())
     for collection in query_db.list_collection_names():
         trade_data = list(query_db.get_collection(collection).find({'$and': [
             {TIME: {'$gte': ohlc_open_timestamp}},
@@ -61,7 +62,7 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
         if trade_data:
             rs_sum = volume = high = 0
             low = 999999999999
-            open, close = trade_data[0][ohlc_open], trade_data[-1][ohlc_close]
+            opening_value, closing_value = trade_data[0][ohlc_open], trade_data[-1][ohlc_close]
 
             for elem in trade_data:
                 rs_sum += elem[RELATIVE_STRENGTH]
@@ -71,13 +72,11 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
                 if elem[ohlc_low] < low:
                     low = elem[ohlc_low]
 
-            rs_average = rs_sum / len(trade_data)
-            pairs_ohlcs[collection] = {TIME: ohlc_open_timestamp, OPEN: open, HIGH: high, LOW: low, CLOSE: close,
-                                       RELATIVE_STRENGTH: rs_average, VOLUME: volume}
+            pairs_ohlcs[collection] = {TIME: ohlc_open_timestamp, OPEN: opening_value, HIGH: high, LOW: low,
+                                       CLOSE: closing_value, RELATIVE_STRENGTH: rs_sum / len(trade_data), VOLUME: volume}
 
     mongo.insert_one_in_db(destination_db, pairs_ohlcs)
-    print(time.time())
-    pass
+
 
 
 # open timestamp is the last finished candle opening time,

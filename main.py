@@ -58,7 +58,7 @@ class DatabaseCache:
         coin_data = list(value.values())[0]
 
         if coin_symbol not in self._cached_aggtrade_data:
-            self._cached_aggtrade_data.update({coin_symbol: [coin_data]})
+            self._cached_aggtrade_data[coin_symbol] = [coin_data]
         else:
             self._cached_aggtrade_data[coin_symbol].append(coin_data)
 
@@ -143,18 +143,33 @@ class DatabaseCache:
         if value == {}:
             self._coins_rel_strength = {}
             return
-
-        coin_symbol = list(value.keys())[0]
-        coin_rel_strength = list(value.values())[0]
-
-        if coin_symbol not in self._coins_rel_strength:
-            self._coins_rel_strength.update({coin_symbol: [coin_rel_strength]})
-        else:
-            self._coins_rel_strength[coin_symbol].append(coin_rel_strength)
+        for coin_symbol, coin_rel_strength in value.items():
+            if coin_symbol not in self._coins_rel_strength:
+                self._coins_rel_strength[coin_symbol] = [coin_rel_strength]
+            else:
+                self._coins_rel_strength[coin_symbol].append(coin_rel_strength)
 
 
 class TACache:
     _ta_chart_value = {}
+    _average_true_range_percentage = {}
+    _relative_volume = {}
+
+    @property
+    def atrp(self):
+        return self._average_true_range_percentage
+
+    @atrp.setter
+    def atrp(self, value):
+        _atrp = value
+
+    @property
+    def rel_vol(self):
+        return self._relative_volume
+
+    @rel_vol.setter
+    def rel_vol(self, value):
+        _relative_volume = value
 
     @property
     def ta_chart(self):
@@ -168,7 +183,7 @@ class TACache:
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
                                "markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=1&sparkline=false"
 AGGTRADE_PYCACHE = 1000
-RS_CACHE = 1500
+RS_CACHE = 2500
 ATOMIC_INSERT_TIME = 2
 CANDLESTICK_WS = "kline"
 CANDLESTICKS_ONE_MINUTE_WS = f"@{CANDLESTICK_WS}_1m"
@@ -177,14 +192,14 @@ PRICE_P = 'p'
 QUANTITY = 'q'
 SYMBOL = 's'
 EVENT_TIMESTAMP = 'E'
-OHLC_CACHE_PERIODS = 70  # TODO: change to 70
+OHLC_CACHE_PERIODS = 5  # TODO--- change to 70
 REL_STRENGTH_PERIODS = OHLC_CACHE_PERIODS - 1
-PRINT_RUNNING_EXECUTION_EACH_SECONDS = 60
+PRINT_RUNNING_EXECUTION_EACH_SECONDS = 60  # TODO--- change to less when debugging
 
 
 async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_strength_db,
                              ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
-    initiate_time_counter = debug_running_execution = dts.get_current_time()
+    initiate_time_counter = debug_running_execution = begin_run = dts.get_current_time()
     db_cache = DatabaseCache()
     ta_cache = TACache()
     pycache_counter = 0
@@ -203,14 +218,16 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                         db_cache.marketcap_sum)
                     if len(db_cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
                         db_cache.coins_rel_strength, rs_cache_counter = dts.update_relative_strength_cache(
-                             db_cache.marketcap_ohlc_data, db_cache.coins_ohlc_data,
-                             db_cache.coins_volume, db_cache.coins_moment_price, rs_cache_counter)
+                            db_cache.marketcap_ohlc_data, db_cache.coins_ohlc_data,
+                            db_cache.coins_volume, db_cache.coins_moment_price, rs_cache_counter)
                         db_cache.coins_volume = {}
                         is_new_minute_ohlc = cur_time % 60 == 0 or (cur_time + 1) % 60 == 0 or (
                                 cur_time - 1) % 60 == 0
 
                         if rs_cache_counter > RS_CACHE or is_new_minute_ohlc:
-                            await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db, db_cache.coins_rel_strength)
+                            # print(f"HERE {time.time()}")
+                            await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db,
+                                                                              db_cache.coins_rel_strength)
                             db_cache.coins_rel_strength = {}
                             rs_cache_counter = 0
                             if is_new_minute_ohlc:
@@ -222,18 +239,19 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                                                                ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
                                                                ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
 
-                            # t = Thread(target=mongoDBcreate.insert_ohlc_data, args=(finished_ohlc_open_timestamp,
-                            #                                                       ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
-                            #                                                       ohlc_1h_db, ohlc_4h_db, ohlc_1d_db, ))
-                            # t.start()
-                    #             #TODO: change: if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0:  # \
-                    #             if finished_ohlc_open_timestamp % 600 == 0:
-                    #                 # TODO: ADD--> and finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
-                    #                 ta_cache.ta_chart = dts.create_last_day_rs_chart(finished_ohlc_open_timestamp,
-                    #                                                                  db_cache.coins_moment_price)
-                    #
-                    # #TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
+                                # t = Thread(target=mongoDBcreate.insert_ohlc_data, args=(finished_ohlc_open_timestamp,
+                                #                                                       ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
+                                #                                                       ohlc_1h_db, ohlc_4h_db, ohlc_1d_db, ))
+                                # t.start()
 
+                                # TODO--- debugging vs running
+                                if finished_ohlc_open_timestamp % 600 == 0:
+                                    # if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0 and \
+                                    #         finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
+                                    ta_cache.ta_chart = dts.create_last_day_rs_chart(finished_ohlc_open_timestamp,
+                                                                                     db_cache.coins_moment_price)
+
+                    # TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
 
                 if CANDLESTICK_WS in ws_trade['stream']:
                     db_cache.coins_current_ohlcs, db_cache.coins_ohlc_data, db_cache.marketcap_ohlc_data, db_cache.marketcap_latest_timestamp = \
@@ -282,8 +300,6 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                     debug_running_execution += PRINT_RUNNING_EXECUTION_EACH_SECONDS
                     print(dts.get_current_time())
 
-
-
             except ServerSelectionTimeoutError as e:
                 if "localhost:27017" in e.args[0]:
                     logging.exception("Cannot connect to mongo DB")
@@ -297,7 +313,6 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
 
                 if ws_trade['m'] == 'Queue overflow. Message not filled':
                     raise QueueOverflow
-
                 exit(1)
 
 

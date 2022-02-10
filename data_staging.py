@@ -5,22 +5,14 @@ from typing import Optional, Union, List
 import requests as requests
 from pymongo import MongoClient
 
-import MongoDB.DBactions as mongo
 import numpy as np
 import talib
 from numpy import double
 
-from MongoDB.DB_OHLC_Create import TIME, RELATIVE_STRENGTH, PRICE
+from MongoDB.DB_OHLC_Create import TIME, RELATIVE_STRENGTH, PRICE, VOLUME, OPEN, HIGH, LOW, CLOSE
 from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS
 
-# OHLC
 TIMESTAMP = 't'
-OPEN = 'o'
-CLOSE = 'c'
-HIGH = 'h'
-LOW = 'l'
-VOLUME = 'v'
-
 SYMBOL = 'symbol'
 
 
@@ -28,7 +20,7 @@ def remove_usdt(symbols: Union[List[str], str]):
     if isinstance(symbols, str):
         try:
             return re.match('(^(.+?)USDT)', symbols).groups()[1].upper()
-        except AttributeError as AttrError:
+        except AttributeError as e:
             return None
     else:
         return [re.match('(^(.+?)USDT)', symbol).groups()[1].upper() for symbol in symbols]
@@ -42,21 +34,22 @@ def clean_data(data, *args):
     return data_keys
 
 
-async def insert_aggtrade_data(db, aggtrade_data):
-    await mongo.duplicate_insert_aggtrade_data(db, aggtrade_data)
-
-
-# async def insert_rs_volume_price(db, rel_strength):
-#     await mongo.duplicate_insert_data_rs_volume_price(db, rel_strength)
-
-
 def usdt_symbols_stream(type_of_trade: str) -> list:
+    usdt = "USDT"
+
     binance_symbols_price = requests.get("https://api.binance.com/api/v3/ticker/price").json()
     symbols = []
 
-    for symbol_info in binance_symbols_price:
-        if "USDT" in symbol_info[SYMBOL]:
-            symbols.append(symbol_info[SYMBOL])
+    binance_symbols = []
+    for elem in binance_symbols_price:
+        binance_symbols.append(elem["symbol"])
+
+    for all_elements in binance_symbols:
+        if usdt in all_elements:
+            bnb_elem_search = all_elements.replace(usdt, "BNB")
+            for bnb_elems in binance_symbols:
+                if bnb_elem_search in bnb_elems:
+                    symbols.append(all_elements)
     return [f"{symbol.lower()}{type_of_trade}" for symbol in symbols]
 
 
@@ -200,7 +193,7 @@ def get_coin_fund_ratio(symbol_pairs: dict, symbols_information: dict):
     return coin_ratio
 
 
-def calculate_relative_atr(ohlc_data):
+def calculate_relative_atr_percentage(ohlc_data):
     high, low, close = [], [], []
     for item in ohlc_data.items():
         high.append(float(item[1][HIGH]))
@@ -213,9 +206,8 @@ def calculate_relative_atr(ohlc_data):
     return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
 
 
-# TODO: debug this function for cases where it reaches unconclusive values, if it happens often it may be a problem.
-def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data) -> Optional[float]:
-    coin_relative_atr = calculate_relative_atr(coin_ohlc_data)
+def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data) -> float:
+    coin_atr_percentage = calculate_relative_atr_percentage(coin_ohlc_data)
     coin_change_percentage = ((float(coin_ohlc_data[len(coin_ohlc_data)][OPEN]) / float(
         coin_ohlc_data[1][OPEN])) - 1) * 100
 
@@ -223,12 +215,12 @@ def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_market
         market_change_percentage = ((cached_marketcap_ohlc_data[len(coin_ohlc_data)][OPEN] /
                                      cached_marketcap_ohlc_data[1][OPEN]) - 1) * 100
     except ZeroDivisionError:
-        return None  # unlikely case, no better solution found.
+        return 0  # unlikely case, no better solution found.
 
-    atr_quotient = (coin_relative_atr / marketcap_rel_atr)
+    atr_quotient = (coin_atr_percentage / marketcap_rel_atr)
 
     if atr_quotient > 15 or atr_quotient < -15 or atr_quotient == 0 or (0.00001 > atr_quotient > 0):
-        return None
+        return 0
 
     return (coin_change_percentage - market_change_percentage) / atr_quotient
 
@@ -236,7 +228,7 @@ def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_market
 def update_relative_strength_cache(marketcap_ohlc_data, coins_ohlc_data,
                                    coins_volume, coins_moment_price,
                                    rs_cache_counter):
-    marketcap_relative_atr = calculate_relative_atr(marketcap_ohlc_data)
+    marketcap_atr_percentage = calculate_relative_atr_percentage(marketcap_ohlc_data)
     ts_rs_vol_values = {}
     for coin_ohlc_data in coins_ohlc_data.items():
         if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
@@ -248,11 +240,11 @@ def update_relative_strength_cache(marketcap_ohlc_data, coins_ohlc_data,
                 continue
 
             relative_strength = calculate_relative_strength(
-                coin_ohlc_data[1], marketcap_relative_atr,
+                coin_ohlc_data[1], marketcap_atr_percentage,
                 marketcap_ohlc_data)
 
-            ts_rs_vol_values[coin_ohlc_data[0]] = {coin_ohlc_data[0]: {TIME: get_current_time(), RELATIVE_STRENGTH: relative_strength,
-                                                                       VOLUME: get_coin_volume, PRICE: get_coin_moment_price}}
+            ts_rs_vol_values[coin_ohlc_data[0]] = {TIME: get_current_time(), RELATIVE_STRENGTH: relative_strength,
+                                                   VOLUME: get_coin_volume, PRICE: get_coin_moment_price}
     return ts_rs_vol_values, rs_cache_counter
 
 
@@ -260,6 +252,7 @@ def get_current_time() -> int:
     return int(time.time())
 
 
+#TODO: refactor
 def create_last_day_rs_chart(timestamp, coin_current_price):
     timestamp_minus_one_day = timestamp - (60 * 60 * 24)
     db = MongoClient('mongodb://localhost:27017/')['Relative_strength']
@@ -283,7 +276,8 @@ def create_last_day_rs_chart(timestamp, coin_current_price):
                     symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
                 else:
                     symbol_data_dict[counter]["Totalvolume"] += elem['v']
-                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * elem['RS']
+                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
+                                                               elem['RS']
 
             if number < 0:
                 counter = 0
@@ -294,13 +288,14 @@ def create_last_day_rs_chart(timestamp, coin_current_price):
                     symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
                 else:
                     symbol_data_dict[counter]["Totalvolume"] += elem['v']
-                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * elem['RS']
+                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
+                                                               elem['RS']
 
         all_symbols_data_dict[collection] = symbol_data_dict
 
     return all_symbols_data_dict
 
-    # marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
+    # marketcap_relative_atr = dts.calculate_relative_atr_percentage(cache.marketcap_ohlc_data)
     # for coin_ohlc_data in cache.coins_ohlc_data.items():
     #     if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
     #         try:

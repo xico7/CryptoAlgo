@@ -42,12 +42,15 @@ async def duplicate_insert_data_rs_volume_price(db, data: dict):
 
 
 def insert_one_in_db(database, data):
+    # TODO--- remove inserts if debugging and execution in terminal is running
     pass
-    for key in list(data.keys()):
-        database.get_collection(key).insert_one(data[key])
+    # for key in list(data.keys()):
+    #     database.get_collection(key).insert_one(data[key])
+
 
 def insert_many_in_db(database, data):
+    # TODO--- remove inserts if debugging and execution in terminal is running
     pass
-    for key in list(data.keys()):
-        database.get_collection(key).insert_many(data[key])
+    # for key in list(data.keys()):
+    #     database.get_collection(key).insert_many(data[key])
 
