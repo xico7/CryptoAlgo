@@ -192,9 +192,9 @@ PRICE_P = 'p'
 QUANTITY = 'q'
 SYMBOL = 's'
 EVENT_TIMESTAMP = 'E'
-OHLC_CACHE_PERIODS = 5  # TODO--- change to 70
+OHLC_CACHE_PERIODS = 70
 REL_STRENGTH_PERIODS = OHLC_CACHE_PERIODS - 1
-PRINT_RUNNING_EXECUTION_EACH_SECONDS = 60  # TODO--- change to less when debugging
+PRINT_RUNNING_EXECUTION_EACH_SECONDS = 600
 
 
 async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_strength_db,
@@ -225,7 +225,6 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                                 cur_time - 1) % 60 == 0
 
                         if rs_cache_counter > RS_CACHE or is_new_minute_ohlc:
-                            # print(f"HERE {time.time()}")
                             await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db,
                                                                               db_cache.coins_rel_strength)
                             db_cache.coins_rel_strength = {}
@@ -239,19 +238,6 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                                                                ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
                                                                ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
 
-                                # t = Thread(target=mongoDBcreate.insert_ohlc_data, args=(finished_ohlc_open_timestamp,
-                                #                                                       ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
-                                #                                                       ohlc_1h_db, ohlc_4h_db, ohlc_1d_db, ))
-                                # t.start()
-
-                                # TODO--- debugging vs running
-                                if finished_ohlc_open_timestamp % 600 == 0:
-                                    # if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0 and \
-                                    #         finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
-                                    ta_cache.ta_chart = dts.create_last_day_rs_chart(finished_ohlc_open_timestamp,
-                                                                                     db_cache.coins_moment_price)
-
-                    # TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
 
                 if CANDLESTICK_WS in ws_trade['stream']:
                     db_cache.coins_current_ohlcs, db_cache.coins_ohlc_data, db_cache.marketcap_ohlc_data, db_cache.marketcap_latest_timestamp = \
