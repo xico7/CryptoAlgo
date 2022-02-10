@@ -1,5 +1,5 @@
+import time
 import traceback
-from threading import Thread
 
 import requests
 from pymongo.errors import ServerSelectionTimeoutError
@@ -8,9 +8,6 @@ from binance import AsyncClient, BinanceSocketManager
 import MongoDB.DBactions as mongo
 import asyncio
 import logging
-import time
-
-from MongoDB.DB_OHLC_Create import TIME, RELATIVE_STRENGTH, PRICE, VOLUME
 import MongoDB.DB_OHLC_Create as mongoDBcreate
 
 
@@ -31,7 +28,7 @@ SP500_SYMBOLS_USDT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT
                             'LRCUSDT']
 
 
-class Cache:
+class DatabaseCache:
     _cached_coins_volume = {}
     _cached_coins_moment_price = {}
     _cached_marketcap_coins_value = {}
@@ -156,10 +153,22 @@ class Cache:
             self._coins_rel_strength[coin_symbol].append(coin_rel_strength)
 
 
+class TACache:
+    _ta_chart_value = {}
+
+    @property
+    def ta_chart(self):
+        return self._ta_chart_value
+
+    @ta_chart.setter
+    def ta_chart(self, value):
+        _ta_chart_value = value
+
+
 coingecko_marketcap_api_link = "https://api.coingecko.com/api/v3/coins/" \
                                "markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=1&sparkline=false"
 AGGTRADE_PYCACHE = 1000
-RS_CACHE = 1000
+RS_CACHE = 1500
 ATOMIC_INSERT_TIME = 2
 CANDLESTICK_WS = "kline"
 CANDLESTICKS_ONE_MINUTE_WS = f"@{CANDLESTICK_WS}_1m"
@@ -168,16 +177,16 @@ PRICE_P = 'p'
 QUANTITY = 'q'
 SYMBOL = 's'
 EVENT_TIMESTAMP = 'E'
-OHLC_CACHE_PERIODS = 3  # TODO: change to 70
+OHLC_CACHE_PERIODS = 70  # TODO: change to 70
 REL_STRENGTH_PERIODS = OHLC_CACHE_PERIODS - 1
-PRINT_RUNNING_EXECUTION_EACH_SECONDS = 1000
+PRINT_RUNNING_EXECUTION_EACH_SECONDS = 60
 
 
 async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_strength_db,
                              ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
-    initiate_time_counter = dts.get_current_time()
-    debug_running_execution = dts.get_current_time()
-    cache = Cache()
+    initiate_time_counter = debug_running_execution = dts.get_current_time()
+    db_cache = DatabaseCache()
+    ta_cache = TACache()
     pycache_counter = 0
     rs_cache_counter = 0
 
@@ -186,48 +195,54 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
             try:
                 ws_trade = await tscm.recv()
                 cur_time = dts.get_current_time()
-                if cur_time > initiate_time_counter + ATOMIC_INSERT_TIME and cache.marketcap_latest_timestamp > 0:
+                if cur_time > initiate_time_counter + ATOMIC_INSERT_TIME and db_cache.marketcap_latest_timestamp > 0:
                     initiate_time_counter += ATOMIC_INSERT_TIME
-                    cache.marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(cache.marketcap_current_ohlc,
-                                                                                          cache.marketcap_latest_timestamp,
-                                                                                          cache.marketcap_sum)
-                    if len(cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
-                        cache.coins_rel_strength, rs_cache_counter = dts.update_relative_strength_cache(
-                            cache.marketcap_ohlc_data, cache.coins_ohlc_data,
-                            cache.coins_volume, cache.coins_moment_price,
-                            cache.coins_rel_strength, rs_cache_counter, rel_strength_db)
+                    db_cache.marketcap_current_ohlc = dts.update_current_marketcap_ohlc_data(
+                        db_cache.marketcap_current_ohlc,
+                        db_cache.marketcap_latest_timestamp,
+                        db_cache.marketcap_sum)
+                    if len(db_cache.marketcap_ohlc_data) == OHLC_CACHE_PERIODS:
+                        db_cache.coins_rel_strength, rs_cache_counter = dts.update_relative_strength_cache(
+                             db_cache.marketcap_ohlc_data, db_cache.coins_ohlc_data,
+                             db_cache.coins_volume, db_cache.coins_moment_price, rs_cache_counter)
+                        db_cache.coins_volume = {}
+                        is_new_minute_ohlc = cur_time % 60 == 0 or (cur_time + 1) % 60 == 0 or (
+                                cur_time - 1) % 60 == 0
 
-                    is_new_minute_ohlc = cur_time % 60 == 0 or (cur_time + 1) % 60 == 0 or (
-                            cur_time - 1) % 60 == 0
-
-                    if rs_cache_counter > RS_CACHE or is_new_minute_ohlc:
-                        await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db, cache.coins_rel_strength)
-                        # await dts.insert_rs_volume_price(rel_strength_db, cache.coins_rel_strength)
-                        cache.coins_rel_strength = {}
-                        rs_cache_counter = 0
-                        if is_new_minute_ohlc:
-                            while (cur_time - 3) % 60 != 0:
-                                cur_time -= 1
-                            finished_ohlc_open_timestamp = cur_time - 3
-                            mongoDBcreate.insert_ohlc_data(finished_ohlc_open_timestamp,
-                                                           ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
-                                                           ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
+                        if rs_cache_counter > RS_CACHE or is_new_minute_ohlc:
+                            await mongo.duplicate_insert_data_rs_volume_price(rel_strength_db, db_cache.coins_rel_strength)
+                            db_cache.coins_rel_strength = {}
+                            rs_cache_counter = 0
+                            if is_new_minute_ohlc:
+                                finished_ohlc_open_timestamp = cur_time
+                                while (finished_ohlc_open_timestamp - 3) % 60 != 0:
+                                    finished_ohlc_open_timestamp -= 1
+                                finished_ohlc_open_timestamp -= 3
+                                mongoDBcreate.insert_ohlc_data(finished_ohlc_open_timestamp,
+                                                               ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
+                                                               ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
 
                             # t = Thread(target=mongoDBcreate.insert_ohlc_data, args=(finished_ohlc_open_timestamp,
                             #                                                       ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
                             #                                                       ohlc_1h_db, ohlc_4h_db, ohlc_1d_db, ))
                             # t.start()
+                    #             #TODO: change: if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0:  # \
+                    #             if finished_ohlc_open_timestamp % 600 == 0:
+                    #                 # TODO: ADD--> and finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
+                    #                 ta_cache.ta_chart = dts.create_last_day_rs_chart(finished_ohlc_open_timestamp,
+                    #                                                                  db_cache.coins_moment_price)
+                    #
+                    # #TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
 
-                    cache.coins_volume = {}
 
                 if CANDLESTICK_WS in ws_trade['stream']:
-                    cache.coins_current_ohlcs, cache.coins_ohlc_data, cache.marketcap_ohlc_data, cache.marketcap_latest_timestamp = \
-                        await dts.update_ohlc_cached_values(cache.coins_current_ohlcs,
+                    db_cache.coins_current_ohlcs, db_cache.coins_ohlc_data, db_cache.marketcap_ohlc_data, db_cache.marketcap_latest_timestamp = \
+                        await dts.update_ohlc_cached_values(db_cache.coins_current_ohlcs,
                                                             ws_trade['data']['k'],
-                                                            cache.coins_ohlc_data,
-                                                            cache.marketcap_ohlc_data,
-                                                            cache.marketcap_current_ohlc,
-                                                            cache.marketcap_latest_timestamp)
+                                                            db_cache.coins_ohlc_data,
+                                                            db_cache.marketcap_ohlc_data,
+                                                            db_cache.marketcap_current_ohlc,
+                                                            db_cache.marketcap_latest_timestamp)
 
                 elif AGGREGATED_TRADE_WS in ws_trade['stream']:
                     pycache_counter += 1
@@ -238,34 +253,34 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                     coin_symbol = dts.remove_usdt(symbol_pair)
 
                     if coin_symbol:
-                        cache.coins_moment_price = dts.update_cached_coins_values(
-                            cache.coins_moment_price, coin_symbol, coin_moment_price)
-                        cache.coins_volume = dts.update_cached_coin_volumes(
-                            cache.coins_volume, coin_symbol, coin_moment_trade_quantity)
+                        db_cache.coins_moment_price = dts.update_cached_coins_values(
+                            db_cache.coins_moment_price, coin_symbol, coin_moment_price)
+                        db_cache.coins_volume = dts.update_cached_coin_volumes(
+                            db_cache.coins_volume, coin_symbol, coin_moment_trade_quantity)
 
                         if symbol_pair in SP500_SYMBOLS_USDT_PAIRS:
-                            cache.marketcap_coins_value = dts.update_cached_marketcap_coins_value(
-                                cache.marketcap_coins_value, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
+                            db_cache.marketcap_coins_value = dts.update_cached_marketcap_coins_value(
+                                db_cache.marketcap_coins_value, coin_symbol, coin_moment_price, coin_ratio[coin_symbol])
 
-                            cache.marketcap_sum = sum(list(cache.marketcap_coins_value.values()))
+                            db_cache.marketcap_sum = sum(list(db_cache.marketcap_coins_value.values()))
 
-                    cache.aggtrade_data = {
+                    db_cache.aggtrade_data = {
                         symbol_pair: dts.clean_data(aggtrade_data, EVENT_TIMESTAMP, PRICE_P, QUANTITY)}
 
                     if pycache_counter > AGGTRADE_PYCACHE:
-                        await mongo.duplicate_insert_aggtrade_data(ta_lines_db, cache.aggtrade_data)
+                        await mongo.duplicate_insert_aggtrade_data(ta_lines_db, db_cache.aggtrade_data)
                         # await dts.insert_aggtrade_data(ta_lines_db, cache.aggtrade_data)
-                        cache.aggtrade_data = {}
+                        db_cache.aggtrade_data = {}
                         pycache_counter -= AGGTRADE_PYCACHE
 
-                        # if (int(time.time()) - int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])) > 10:
-                        #     print(f"{int(time.time())} , {int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])} , calc, "
-                        #           f"segundos de diferença: '{int(time.time()) - int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])}'")
-                        # debug_running_execution_current_time = dts.get_current_time
-                        # if debug_running_execution_current_time() > (
-                        #         debug_running_execution + PRINT_RUNNING_EXECUTION_EACH_SECONDS):
-                        #     debug_running_execution += PRINT_RUNNING_EXECUTION_EACH_SECONDS
-                        #     print(dts.get_current_time())
+                if (int(time.time()) - int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])) > 10:
+                    print(f"{int(time.time())} , {int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])} , calc, "
+                          f"segundos de diferença: '{int(time.time()) - int(str(ws_trade['data'][EVENT_TIMESTAMP])[:-3])}'")
+                debug_running_execution_current_time = dts.get_current_time
+                if debug_running_execution_current_time() > (
+                        debug_running_execution + PRINT_RUNNING_EXECUTION_EACH_SECONDS):
+                    debug_running_execution += PRINT_RUNNING_EXECUTION_EACH_SECONDS
+                    print(dts.get_current_time())
 
 
 

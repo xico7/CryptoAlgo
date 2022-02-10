@@ -14,6 +14,14 @@ RELATIVE_STRENGTH = 'RS'
 VOLUME = 'Volume'
 CLIENT = MongoClient('mongodb://localhost:27017/')
 
+ONE_MIN_IN_SEC = 60
+FIVE_MIN_IN_SEC = ONE_MIN_IN_SEC * 5
+FIFTEEN_MIN_IN_SEC = ONE_MIN_IN_SEC * 15
+THIRTY_MIN_IN_SEC = FIFTEEN_MIN_IN_SEC * 2
+ONE_HOUR_IN_SEC = ONE_MIN_IN_SEC * 60
+FOUR_HOUR_IN_SEC = ONE_MIN_IN_SEC * ONE_HOUR_IN_SEC * 4
+ONE_DAY_IN_SEC = ONE_MIN_IN_SEC * ONE_HOUR_IN_SEC * 24
+
 
 def insert_ohlc_1m(open_timestamp, ohlc_1m_db):
     create_insert_ohlc_data(open_timestamp, CLIENT['Relative_strength'], ohlc_1m_db, 1, PRICE, PRICE, PRICE, PRICE)
@@ -72,27 +80,19 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
     pass
 
 
+# open timestamp is the last finished candle opening time,
+# exactly what we want for one minute candle but not really whats
+# needed for the other ones where we must add one minute.
 def insert_ohlc_data(open_timestamp, ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
-    """Open timestamp is the last finished candle opening time, exactly what we want for one minute candle but
-    not really whats needed for the other ones where we must add one minute."""
-    one_min_in_sec = 60
-    five_min_in_sec = one_min_in_sec * 5
-    fifteen_min_in_sec = one_min_in_sec * 15
-    one_hour_in_sec = one_min_in_sec * 60
-    four_hour_in_sec = one_min_in_sec * one_hour_in_sec * 4
-    one_day_in_sec = one_min_in_sec * one_hour_in_sec * 24
-
-    if open_timestamp % one_min_in_sec == 0:
+    if open_timestamp % ONE_MIN_IN_SEC == 0:
         insert_ohlc_1m(open_timestamp, ohlc_1m_db)
-    if open_timestamp % five_min_in_sec == 0:
-        insert_ohlc_5m((open_timestamp - five_min_in_sec + one_min_in_sec), ohlc_5m_db)
-    if open_timestamp % fifteen_min_in_sec == 0:
-        insert_ohlc_15m((open_timestamp - fifteen_min_in_sec + one_min_in_sec), ohlc_15m_db)
-    if open_timestamp % one_hour_in_sec == 0:
-        insert_ohlc_1h((open_timestamp - one_hour_in_sec + one_min_in_sec), ohlc_1h_db)
-    if open_timestamp % four_hour_in_sec == 0:
-        insert_ohlc_4h((open_timestamp - four_hour_in_sec + one_min_in_sec), ohlc_4h_db)
-    if open_timestamp % one_day_in_sec == 0:
-        insert_ohlc_1d((open_timestamp - one_day_in_sec + one_min_in_sec), ohlc_1d_db)
-
-
+    if open_timestamp % FIVE_MIN_IN_SEC == 0:
+        insert_ohlc_5m((open_timestamp - FIVE_MIN_IN_SEC + ONE_MIN_IN_SEC), ohlc_5m_db)
+    if open_timestamp % FIFTEEN_MIN_IN_SEC == 0:
+        insert_ohlc_15m((open_timestamp - FIFTEEN_MIN_IN_SEC + ONE_MIN_IN_SEC), ohlc_15m_db)
+    if open_timestamp % ONE_HOUR_IN_SEC == 0:
+        insert_ohlc_1h((open_timestamp - ONE_HOUR_IN_SEC + ONE_MIN_IN_SEC), ohlc_1h_db)
+    if open_timestamp % FOUR_HOUR_IN_SEC == 0:
+        insert_ohlc_4h((open_timestamp - FOUR_HOUR_IN_SEC + ONE_MIN_IN_SEC), ohlc_4h_db)
+    if open_timestamp % ONE_DAY_IN_SEC == 0:
+        insert_ohlc_1d((open_timestamp - ONE_DAY_IN_SEC + ONE_MIN_IN_SEC), ohlc_1d_db)

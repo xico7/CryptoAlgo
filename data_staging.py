@@ -3,13 +3,15 @@ import re
 import time
 from typing import Optional, Union, List
 import requests as requests
+from pymongo import MongoClient
+
 import MongoDB.DBactions as mongo
 import numpy as np
 import talib
 from numpy import double
 
 from MongoDB.DB_OHLC_Create import TIME, RELATIVE_STRENGTH, PRICE
-from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS, RS_CACHE
+from main import OHLC_CACHE_PERIODS, REL_STRENGTH_PERIODS
 
 # OHLC
 TIMESTAMP = 't'
@@ -59,8 +61,8 @@ def usdt_symbols_stream(type_of_trade: str) -> list:
 
 
 async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, symbols_ohlc_data: dict,
-                                    marketcap_ohlc_data: dict, marketcap_current_ohlc: dict, marketcap_latest_timestamp: int):
-
+                                    marketcap_ohlc_data: dict, marketcap_current_ohlc: dict,
+                                    marketcap_latest_timestamp: int):
     ohlc_trade_data = {ws_trade_data['s']: clean_data(ws_trade_data, TIMESTAMP, VOLUME, OPEN, HIGH, LOW, CLOSE)}
     symbol_pair = list(ohlc_trade_data.keys())[0]
 
@@ -79,9 +81,12 @@ async def update_ohlc_cached_values(current_ohlcs: dict, ws_trade_data: dict, sy
         if ohlc_trade_data[symbol_pair][TIMESTAMP] > marketcap_latest_timestamp:
             marketcap_latest_timestamp = ohlc_trade_data[symbol_pair][TIMESTAMP]  # Update marketcap latest timestamp
             if marketcap_current_ohlc[TIMESTAMP] > 0 and not marketcap_ohlc_data:
-                marketcap_ohlc_data = copy.deepcopy(update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
-            if marketcap_ohlc_data and (marketcap_ohlc_data[len(marketcap_ohlc_data)][TIMESTAMP] != marketcap_current_ohlc[TIMESTAMP]):
-                marketcap_ohlc_data = copy.deepcopy(update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
+                marketcap_ohlc_data = copy.deepcopy(
+                    update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
+            if marketcap_ohlc_data and (
+                    marketcap_ohlc_data[len(marketcap_ohlc_data)][TIMESTAMP] != marketcap_current_ohlc[TIMESTAMP]):
+                marketcap_ohlc_data = copy.deepcopy(
+                    update_cached_marketcap_ohlc_data(marketcap_ohlc_data, marketcap_current_ohlc))
 
     return current_ohlcs, symbols_ohlc_data, marketcap_ohlc_data, marketcap_latest_timestamp
 
@@ -103,7 +108,6 @@ def update_current_symbol_ohlc(current_symbol_ohlc, ohlc_trade_data):
 
 
 def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_periods: int) -> Optional[dict]:
-
     new_ohlc_symbol = list(new_ohlc_data.keys())[0]
     new_ohlc_values = list(new_ohlc_data.values())[0]
 
@@ -123,7 +127,8 @@ def update_cached_symbols_ohlc_data(ohlc_data: dict, new_ohlc_data: dict, cache_
     return ohlc_data
 
 
-def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict, cached_current_marketcap_candle: dict) -> dict:
+def update_cached_marketcap_ohlc_data(cached_marketcap_ohlc_data_copy: dict,
+                                      cached_current_marketcap_candle: dict) -> dict:
     if not cached_marketcap_ohlc_data_copy:
         cached_marketcap_ohlc_data_copy.update({1: cached_current_marketcap_candle})
         return cached_marketcap_ohlc_data_copy
@@ -202,7 +207,8 @@ def calculate_relative_atr(ohlc_data):
         low.append(float(item[1][LOW]))
         close.append(float(item[1][CLOSE]))
 
-    average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[REL_STRENGTH_PERIODS]
+    average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[
+        REL_STRENGTH_PERIODS]
 
     return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
 
@@ -210,10 +216,12 @@ def calculate_relative_atr(ohlc_data):
 # TODO: debug this function for cases where it reaches unconclusive values, if it happens often it may be a problem.
 def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_marketcap_ohlc_data) -> Optional[float]:
     coin_relative_atr = calculate_relative_atr(coin_ohlc_data)
-    coin_change_percentage = ((float(coin_ohlc_data[len(coin_ohlc_data)][OPEN]) / float(coin_ohlc_data[1][OPEN])) - 1) * 100
+    coin_change_percentage = ((float(coin_ohlc_data[len(coin_ohlc_data)][OPEN]) / float(
+        coin_ohlc_data[1][OPEN])) - 1) * 100
 
     try:
-        market_change_percentage = ((cached_marketcap_ohlc_data[len(coin_ohlc_data)][OPEN] / cached_marketcap_ohlc_data[1][OPEN]) - 1) * 100
+        market_change_percentage = ((cached_marketcap_ohlc_data[len(coin_ohlc_data)][OPEN] /
+                                     cached_marketcap_ohlc_data[1][OPEN]) - 1) * 100
     except ZeroDivisionError:
         return None  # unlikely case, no better solution found.
 
@@ -227,13 +235,12 @@ def calculate_relative_strength(coin_ohlc_data, marketcap_rel_atr, cached_market
 
 def update_relative_strength_cache(marketcap_ohlc_data, coins_ohlc_data,
                                    coins_volume, coins_moment_price,
-                                   coins_rel_strength, rs_cache_counter,
-                                   rel_strength_db):
-
-
+                                   rs_cache_counter):
     marketcap_relative_atr = calculate_relative_atr(marketcap_ohlc_data)
+    ts_rs_vol_values = {}
     for coin_ohlc_data in coins_ohlc_data.items():
         if len(coin_ohlc_data[1]) == OHLC_CACHE_PERIODS:
+            rs_cache_counter += 1
             try:
                 get_coin_volume = coins_volume[remove_usdt(coin_ohlc_data[0])]
                 get_coin_moment_price = coins_moment_price[remove_usdt(coin_ohlc_data[0])]
@@ -243,22 +250,55 @@ def update_relative_strength_cache(marketcap_ohlc_data, coins_ohlc_data,
             relative_strength = calculate_relative_strength(
                 coin_ohlc_data[1], marketcap_relative_atr,
                 marketcap_ohlc_data)
-            if relative_strength:
-                coins_rel_strength = {coin_ohlc_data[0]:
-                                                {TIME: get_current_time(),
-                                                 RELATIVE_STRENGTH: relative_strength,
-                                                 VOLUME: get_coin_volume,
-                                                 PRICE: get_coin_moment_price}
-                                            }
 
-            rs_cache_counter += 1
+            ts_rs_vol_values[coin_ohlc_data[0]] = {coin_ohlc_data[0]: {TIME: get_current_time(), RELATIVE_STRENGTH: relative_strength,
+                                                                       VOLUME: get_coin_volume, PRICE: get_coin_moment_price}}
+    return ts_rs_vol_values, rs_cache_counter
 
-            return coins_rel_strength, rs_cache_counter
 
 def get_current_time() -> int:
     return int(time.time())
 
 
+def create_last_day_rs_chart(timestamp, coin_current_price):
+    timestamp_minus_one_day = timestamp - (60 * 60 * 24)
+    db = MongoClient('mongodb://localhost:27017/')['Relative_strength']
+
+    all_symbols_data_dict = {}
+    for collection in db.list_collection_names():
+        result = list(db.get_collection(collection).find({'$and': [
+            {'Time': {'$gte': timestamp_minus_one_day}},
+            {'Time': {'$lte': timestamp_minus_one_day + 864000}}
+        ]
+        }).rewind())
+        symbol_data_dict = {}
+        for elem in result:
+            number = (elem['Price'] * 100 / coin_current_price[remove_usdt(collection)]) - 100
+            if number > 0:
+                counter = 0
+                while number > 0:
+                    number -= 0.5
+                    counter += 1
+                if counter not in symbol_data_dict:
+                    symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
+                else:
+                    symbol_data_dict[counter]["Totalvolume"] += elem['v']
+                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * elem['RS']
+
+            if number < 0:
+                counter = 0
+                while number < 0:
+                    number += 0.5
+                    counter -= 1
+                if counter not in symbol_data_dict:
+                    symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
+                else:
+                    symbol_data_dict[counter]["Totalvolume"] += elem['v']
+                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * elem['RS']
+
+        all_symbols_data_dict[collection] = symbol_data_dict
+
+    return all_symbols_data_dict
 
     # marketcap_relative_atr = dts.calculate_relative_atr(cache.marketcap_ohlc_data)
     # for coin_ohlc_data in cache.coins_ohlc_data.items():
