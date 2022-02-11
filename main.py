@@ -251,6 +251,7 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                                     ta_cache.ta_chart = dts.create_last_day_rs_chart(finished_ohlc_open_timestamp,
                                                                                      db_cache.coins_moment_price)
 
+                    pass
                     # TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
 
                 if CANDLESTICK_WS in ws_trade['stream']:

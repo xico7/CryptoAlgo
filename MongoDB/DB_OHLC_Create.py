@@ -10,7 +10,7 @@ RELATIVE_STRENGTH = 'RS'
 VOLUME = 'v'
 CLIENT = MongoClient('mongodb://localhost:27017/')
 
-#OHLC
+# OHLC
 OPEN = 'o'
 CLOSE = 'c'
 HIGH = 'h'
@@ -25,37 +25,13 @@ FOUR_HOUR_IN_SEC = ONE_MIN_IN_SEC * ONE_HOUR_IN_SEC * 4
 ONE_DAY_IN_SEC = ONE_MIN_IN_SEC * ONE_HOUR_IN_SEC * 24
 
 
-def insert_ohlc_1m(open_timestamp, ohlc_1m_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['Relative_strength'], ohlc_1m_db, 1, PRICE, PRICE, PRICE, PRICE)
-
-
-def insert_ohlc_5m(open_timestamp, ohlc_5m_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['OHLC_1minutes'], ohlc_5m_db, 5)
-
-
-def insert_ohlc_15m(open_timestamp, ohlc_15m_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['OHLC_5minutes'], ohlc_15m_db, 15)
-
-
-def insert_ohlc_1h(open_timestamp, ohlc_1h_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['OHLC_15minutes'], ohlc_1h_db, 60)
-
-
-def insert_ohlc_4h(open_timestamp, ohlc_4h_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['OHLC_1hour'], ohlc_4h_db, 240)
-
-
-def insert_ohlc_1d(open_timestamp, ohlc_1d_db):
-    create_insert_ohlc_data(open_timestamp, CLIENT['OHLC_4hour'], ohlc_1d_db, 1440)
-
-
-def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_minutes,
+def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_seconds,
                             ohlc_open=OPEN, ohlc_close=CLOSE, ohlc_high=HIGH, ohlc_low=LOW):
     pairs_ohlcs = {}
     for collection in query_db.list_collection_names():
         trade_data = list(query_db.get_collection(collection).find({'$and': [
             {TIME: {'$gte': ohlc_open_timestamp}},
-            {TIME: {'$lte': ohlc_open_timestamp + (60 * ohlc_minutes)}}
+            {TIME: {'$lte': ohlc_open_timestamp + ohlc_seconds}}
         ]
         }).rewind())
 
@@ -73,10 +49,10 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
                     low = elem[ohlc_low]
 
             pairs_ohlcs[collection] = {TIME: ohlc_open_timestamp, OPEN: opening_value, HIGH: high, LOW: low,
-                                       CLOSE: closing_value, RELATIVE_STRENGTH: rs_sum / len(trade_data), VOLUME: volume}
+                                       CLOSE: closing_value, RELATIVE_STRENGTH: rs_sum / len(trade_data),
+                                       VOLUME: volume}
 
     mongo.insert_one_in_db(destination_db, pairs_ohlcs)
-
 
 
 # open timestamp is the last finished candle opening time,
@@ -84,14 +60,15 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
 # needed for the other ones where we must add one minute.
 def insert_ohlc_data(open_timestamp, ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
     if open_timestamp % ONE_MIN_IN_SEC == 0:
-        insert_ohlc_1m(open_timestamp, ohlc_1m_db)
+        create_insert_ohlc_data(
+            open_timestamp, CLIENT['Relative_strength'], ohlc_1m_db, ONE_MIN_IN_SEC, PRICE, PRICE, PRICE, PRICE)
     if open_timestamp % FIVE_MIN_IN_SEC == 0:
-        insert_ohlc_5m((open_timestamp - FIVE_MIN_IN_SEC + ONE_MIN_IN_SEC), ohlc_5m_db)
+        create_insert_ohlc_data((open_timestamp - FIVE_MIN_IN_SEC), CLIENT['OHLC_1minutes'], ohlc_5m_db, FIVE_MIN_IN_SEC)
     if open_timestamp % FIFTEEN_MIN_IN_SEC == 0:
-        insert_ohlc_15m((open_timestamp - FIFTEEN_MIN_IN_SEC + ONE_MIN_IN_SEC), ohlc_15m_db)
+        create_insert_ohlc_data((open_timestamp - FIFTEEN_MIN_IN_SEC), CLIENT['OHLC_5minutes'], ohlc_15m_db, FIFTEEN_MIN_IN_SEC)
     if open_timestamp % ONE_HOUR_IN_SEC == 0:
-        insert_ohlc_1h((open_timestamp - ONE_HOUR_IN_SEC + ONE_MIN_IN_SEC), ohlc_1h_db)
+        create_insert_ohlc_data((open_timestamp - ONE_HOUR_IN_SEC), CLIENT['OHLC_15minutes'], ohlc_1h_db, ONE_HOUR_IN_SEC)
     if open_timestamp % FOUR_HOUR_IN_SEC == 0:
-        insert_ohlc_4h((open_timestamp - FOUR_HOUR_IN_SEC + ONE_MIN_IN_SEC), ohlc_4h_db)
+        create_insert_ohlc_data((open_timestamp - FOUR_HOUR_IN_SEC), CLIENT['OHLC_1hour'], ohlc_4h_db, FOUR_HOUR_IN_SEC)
     if open_timestamp % ONE_DAY_IN_SEC == 0:
-        insert_ohlc_1d((open_timestamp - ONE_DAY_IN_SEC + ONE_MIN_IN_SEC), ohlc_1d_db)
+        create_insert_ohlc_data((open_timestamp - ONE_DAY_IN_SEC), CLIENT['OHLC_4hour'], ohlc_1d_db, ONE_DAY_IN_SEC)
