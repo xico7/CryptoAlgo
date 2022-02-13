@@ -204,7 +204,8 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
     ta_cache = TACache()
     pycache_counter = 0
     rs_cache_counter = 0
-    print("QIJQI")
+    duplicated_finished_ohlc_open_timestamp = 0
+
     async with multisocket_candle as tscm:
         while True:
             try:
@@ -234,9 +235,11 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
                                 while (finished_ohlc_open_timestamp - 3) % 60 != 0:
                                     finished_ohlc_open_timestamp -= 1
                                 finished_ohlc_open_timestamp -= 3
-                                mongoDBcreate.insert_ohlc_data(finished_ohlc_open_timestamp,
-                                                               ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
-                                                               ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
+                                if finished_ohlc_open_timestamp != duplicated_finished_ohlc_open_timestamp:
+                                    duplicated_finished_ohlc_open_timestamp = finished_ohlc_open_timestamp
+                                    mongoDBcreate.insert_ohlc_data(finished_ohlc_open_timestamp,
+                                                                   ohlc_1m_db, ohlc_5m_db, ohlc_15m_db,
+                                                                   ohlc_1h_db, ohlc_4h_db, ohlc_1d_db)
 
 
                 if CANDLESTICK_WS in ws_trade['stream']:
