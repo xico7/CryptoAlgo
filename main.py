@@ -204,7 +204,7 @@ async def binance_to_mongodb(multisocket_candle, coin_ratio, ta_lines_db, rel_st
     ta_cache = TACache()
     pycache_counter = 0
     rs_cache_counter = 0
-
+    print("QIJQI")
     async with multisocket_candle as tscm:
         while True:
             try:
