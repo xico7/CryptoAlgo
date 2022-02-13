@@ -46,9 +46,10 @@ def usdt_symbols_stream(type_of_trade: str) -> list:
 
     for all_elements in binance_symbols:
         if usdt in all_elements:
-            bnb_elem_search = all_elements.replace(usdt, "BNB")
+            bnb_append_elem_search = all_elements.replace(usdt, "BNB")
+            bnb_prefix_elem_search = "BNB" + all_elements.replace(usdt, "")
             for bnb_elems in binance_symbols:
-                if bnb_elem_search in bnb_elems:
+                if bnb_append_elem_search in bnb_elems or bnb_prefix_elem_search in bnb_elems:
                     symbols.append(all_elements)
     return [f"{symbol.lower()}{type_of_trade}" for symbol in symbols]
 
