@@ -61,16 +61,20 @@ def create_insert_ohlc_data(ohlc_open_timestamp, query_db, destination_db, ohlc_
 # exactly what we want for one minute candle but not really whats
 # needed for the other ones where we must add one minute.
 def insert_ohlc_data(open_timestamp, ohlc_1m_db, ohlc_5m_db, ohlc_15m_db, ohlc_1h_db, ohlc_4h_db, ohlc_1d_db):
+    print(f"timestamp {open_timestamp} 4h True or false {open_timestamp % FOUR_HOUR_IN_SEC}")
     if open_timestamp % ONE_MIN_IN_SEC == 0:
-        create_insert_ohlc_data(
-            open_timestamp, CLIENT['Relative_strength'], ohlc_1m_db, ONE_MIN_IN_SEC, PRICE, PRICE, PRICE, PRICE)
+        create_insert_ohlc_data(open_timestamp, CLIENT['Relative_strength'], ohlc_1m_db, ONE_MIN_IN_SEC, PRICE, PRICE, PRICE, PRICE)
     if open_timestamp % FIVE_MIN_IN_SEC == 0:
-        create_insert_ohlc_data((open_timestamp - FIVE_MIN_IN_SEC), CLIENT['OHLC_1minutes'], ohlc_5m_db, FIVE_MIN_IN_SEC)
+        create_insert_ohlc_data((open_timestamp - FIVE_MIN_IN_SEC), CLIENT['Relative_strength'], ohlc_5m_db, FIVE_MIN_IN_SEC, PRICE, PRICE, PRICE, PRICE)
     if open_timestamp % FIFTEEN_MIN_IN_SEC == 0:
-        create_insert_ohlc_data((open_timestamp - FIFTEEN_MIN_IN_SEC), CLIENT['OHLC_5minutes'], ohlc_15m_db, FIFTEEN_MIN_IN_SEC)
+        create_insert_ohlc_data((open_timestamp - FIFTEEN_MIN_IN_SEC), CLIENT['Relative_strength'], ohlc_15m_db, FIFTEEN_MIN_IN_SEC, PRICE, PRICE, PRICE, PRICE)
     if open_timestamp % ONE_HOUR_IN_SEC == 0:
-        create_insert_ohlc_data((open_timestamp - ONE_HOUR_IN_SEC), CLIENT['OHLC_15minutes'], ohlc_1h_db, ONE_HOUR_IN_SEC)
+        create_insert_ohlc_data((open_timestamp - ONE_HOUR_IN_SEC), CLIENT['Relative_strength'], ohlc_1h_db, ONE_HOUR_IN_SEC, PRICE, PRICE, PRICE, PRICE)
     if open_timestamp % FOUR_HOUR_IN_SEC == 0:
-        create_insert_ohlc_data((open_timestamp - FOUR_HOUR_IN_SEC), CLIENT['OHLC_1hour'], ohlc_4h_db, FOUR_HOUR_IN_SEC, debug=True)
+        print(time.time())
+        create_insert_ohlc_data((open_timestamp - FOUR_HOUR_IN_SEC), CLIENT['Relative_strength'], ohlc_4h_db, FOUR_HOUR_IN_SEC, PRICE, PRICE, PRICE, PRICE)
+        print(time.time())
     if open_timestamp % ONE_DAY_IN_SEC == 0:
-        create_insert_ohlc_data((open_timestamp - ONE_DAY_IN_SEC), CLIENT['OHLC_4hour'], ohlc_1d_db, ONE_DAY_IN_SEC)
+        print(time.time())
+        create_insert_ohlc_data((open_timestamp - ONE_DAY_IN_SEC), CLIENT['Relative_strength'], ohlc_1d_db, ONE_DAY_IN_SEC, PRICE, PRICE, PRICE, PRICE)
+        print(time.time())
