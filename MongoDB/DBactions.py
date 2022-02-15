@@ -1,5 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient as MotorClient
 
+#TODO: is this async or normal? depends on the queries.. their time etc,..
+
 
 def connect_to_1m_ohlc_db():
     return MotorClient('mongodb://localhost:27017/OHLC_1minutes').get_default_database()
@@ -32,25 +34,4 @@ def connect_to_rs_db():
 def connect_to_ta_lines_db():
     return MotorClient('mongodb://localhost:27017/TA_RS_VOL').get_default_database()
 
-
-async def duplicate_insert_aggtrade_data(db, data: dict):
-    insert_many_in_db(db, data)
-
-
-async def duplicate_insert_data_rs_volume_price(db, data: dict):
-    insert_many_in_db(db, data)
-
-
-def insert_one_in_db(database, data):
-    # TODO--- remove inserts if debugging and execution in terminal is running
-    pass
-    # for key in list(data.keys()):
-    #     database.get_collection(key).insert_one(data[key])
-
-
-def insert_many_in_db(database, data):
-    # TODO--- remove inserts if debugging and execution in terminal is running
-    pass
-    # for key in list(data.keys()):
-    #     database.get_collection(key).insert_many(data[key])
 
