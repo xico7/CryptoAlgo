@@ -1,7 +1,7 @@
 import traceback
 from pymongo.errors import ServerSelectionTimeoutError
 import data_staging as dts
-import MongoDB.DBactions as mongo
+
 import asyncio
 import logging
 
@@ -61,10 +61,19 @@ async def ta_analysis():
                 # TODO: if current_minute % 1800 == 0:
                     # if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0 and \
                     #         finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
-                    db_feed = mongo.connect_to_ta_lines_db()
-                    for collection in db_feed.list_collection_names():
-                        db_feed.collection.find().skip(db_feed.collection.count() - 1)
-                    ta_cache.ta_chart = dts.create_last_day_rs_chart(current_minute, get_db_coins_momentprice)
+
+
+                        # pairs_ohlcs = {}
+                        # for collection in query_db.list_collection_names():
+                        #     trade_data = list(query_db.get_collection(collection).find({'$and': [
+                        #         {TIME: {'$gte': ohlc_open_timestamp}},
+                        #         {TIME: {'$lte': ohlc_open_timestamp + ohlc_seconds}}
+                        #     ]
+                        #     }).rewind())
+
+                    ta_cache.rel_vol = dts.create_last_days_rel_volume()
+                    ta_cache.atrp = dts.create_last_day_atrp()
+                    ta_cache.ta_chart = dts.create_last_day_rs_chart(current_minute)
 
             pass
             # TODO: Relative volume ATRP and Sinals here, after creating last day rs chart
