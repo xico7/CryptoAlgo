@@ -61,9 +61,9 @@ async def ta_analysis():
                 # TODO: if current_minute % 1800 == 0:
                     # if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0 and \
                     #         finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
-                    coin_trades_feed = mongo.connect_to_ta_lines_db()
-                    for elem in coin_trades_feed.list_collection_names():
-                        pass
+                    db_feed = mongo.connect_to_ta_lines_db()
+                    for collection in db_feed.list_collection_names():
+                        db_feed.collection.find().skip(db_feed.collection.count() - 1)
                     ta_cache.ta_chart = dts.create_last_day_rs_chart(current_minute, get_db_coins_momentprice)
 
             pass
