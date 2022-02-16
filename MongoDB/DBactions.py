@@ -33,4 +33,16 @@ def connect_to_rs_db():
 def connect_to_ta_lines_db():
     return MongoClient('mongodb://localhost:27017/TA_RS_VOL').get_default_database()
 
+def connect_to_14periods5min_atrp_db():
+    return MongoClient('mongodb://localhost:27017/14periods5min_atrp').get_default_database()
+
+def connect_to_last_days_rel_volume_db():
+    return MongoClient('mongodb://localhost:27017/last_days_rel_volume').get_default_database()
+
+def connect_to_14periods5min_rel_volume_db():
+    return MongoClient('mongodb://localhost:27017/14periods5min_rel_volume').get_default_database()
+
+def connect_to_last_day_rs_chart_db():
+    return MongoClient('mongodb://localhost:27017/last_day_rs_chart').get_default_database()
+
 

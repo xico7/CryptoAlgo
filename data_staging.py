@@ -23,8 +23,8 @@ def get_current_time() -> int:
 
 def create_last_days_rel_volume():
     DAYS_NUMBER = 7
-    # TODO: 1 day instead of 1h db_feed = mongo.connect_to_1h_ohlc_db()
-    db_oneday_feed = mongo.connect_to_1h_ohlc_db()
+    # TODO: 1 day instead of 4h db_feed = mongo.connect_to_1h_ohlc_db()
+    db_oneday_feed = mongo.connect_to_4h_ohlc_db()
 
     coins_relative_volume = {}
     for collection in db_oneday_feed.list_collection_names():
@@ -32,6 +32,18 @@ def create_last_days_rel_volume():
         for elem in list(db_oneday_feed.get_collection(collection).find(sort=[("Time", -1)]))[1:DAYS_NUMBER]:
             coins_last_days_volumes += float(elem['v']) / DAYS_NUMBER
         coins_relative_volume[collection] = list(db_oneday_feed.get_collection(collection).find(sort=[("Time", -1)]))[1]['v'] / coins_last_days_volumes
+
+    return coins_relative_volume
+
+def create_14periods5min_rel_volume():
+    db_5m_feed = mongo.connect_to_5m_ohlc_db()
+
+    coins_relative_volume = {}
+    for collection in db_5m_feed.list_collection_names():
+        coins_last_14p5m_volumes = 0
+        for elem in list(db_5m_feed.get_collection(collection).find(sort=[("Time", -1)]))[:14]:
+            coins_last_14p5m_volumes += float(elem['v']) / 14
+        coins_relative_volume[collection] = list(db_5m_feed.get_collection(collection).find(sort=[("Time", -1)]))[1]['v'] / coins_last_14p5m_volumes
 
     return coins_relative_volume
 
@@ -52,22 +64,6 @@ def create_14periods5min_atrp():
     return coins_fiveminutes_atrp
 
 
-
-    high, low, close = [], [], []
-    for item in ohlc_data.items():
-        high.append(float(item[1][HIGH]))
-        low.append(float(item[1][LOW]))
-        close.append(float(item[1][CLOSE]))
-
-    average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[
-        REL_STRENGTH_PERIODS]
-
-    return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
-
-
-
-
-
 #TODO: refactor
 def create_last_day_rs_chart(timestamp):
     timestamp_minus_one_day = timestamp - (60 * 60 * 24)
@@ -79,7 +75,6 @@ def create_last_day_rs_chart(timestamp):
     db_feed = mongo.connect_to_ta_lines_db()
     for collection in db_feed.list_collection_names():
         coins_moment_prices[collection] = float(db_feed.get_collection(collection).find_one(sort=[("E", -1)])['p'])
-
     for collection in db.list_collection_names():
         result = list(db.get_collection(collection).find({'$and': [
             {'Time': {'$gte': timestamp_minus_one_day}},
@@ -88,7 +83,8 @@ def create_last_day_rs_chart(timestamp):
         }).rewind())
         symbol_data_dict = {}
         for elem in result:
-            number = (elem['Price'] * 100 / coins_moment_prices[remove_usdt(collection)]) - 100
+
+            number = (elem['Price'] * 100 / coins_moment_prices[collection]) - 100
             if number > 0:
                 counter = 0
                 while number > 0:
@@ -114,7 +110,6 @@ def create_last_day_rs_chart(timestamp):
                                                                elem['RS']
 
         all_symbols_data_dict[collection] = symbol_data_dict
-
     return all_symbols_data_dict
 
 
