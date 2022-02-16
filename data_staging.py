@@ -1,6 +1,9 @@
 import re
 import time
 from typing import Union, List
+
+import numpy as np
+import talib
 from pymongo import MongoClient
 import MongoDB.DBactions as mongo
 
@@ -33,8 +36,36 @@ def create_last_days_rel_volume():
     return coins_relative_volume
 
 
-def create_last_day_atrp():
-    pass
+def create_14periods5min_atrp():
+    db_fiveminutes_feed = mongo.connect_to_5m_ohlc_db()
+
+    coins_fiveminutes_atrp = {}
+    for collection in db_fiveminutes_feed.list_collection_names():
+        high, low, close = [], [], []
+        for elem in list(db_fiveminutes_feed.get_collection(collection).find(sort=[("Time", -1)]))[:14]:
+            high.append(elem['h'])
+            low.append(elem['l'])
+            close.append(elem['c'])
+
+        coins_fiveminutes_atrp[collection] = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=13)[13]
+
+    return coins_fiveminutes_atrp
+
+
+
+    high, low, close = [], [], []
+    for item in ohlc_data.items():
+        high.append(float(item[1][HIGH]))
+        low.append(float(item[1][LOW]))
+        close.append(float(item[1][CLOSE]))
+
+    average_true_range = talib.ATR(np.array(high), np.array(low), np.array(close), timeperiod=REL_STRENGTH_PERIODS)[
+        REL_STRENGTH_PERIODS]
+
+    return double(average_true_range) / double(ohlc_data[REL_STRENGTH_PERIODS][CLOSE]) * 100
+
+
+
 
 
 #TODO: refactor

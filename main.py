@@ -72,7 +72,7 @@ async def ta_analysis():
                         #     }).rewind())
 
                     ta_cache.rel_vol = dts.create_last_days_rel_volume()
-                    ta_cache.atrp = dts.create_last_day_atrp()
+                    ta_cache.atrp = dts.create_14periods5min_atrp()
                     ta_cache.ta_chart = dts.create_last_day_rs_chart(current_minute)
 
             pass
