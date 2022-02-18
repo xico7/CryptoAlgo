@@ -45,4 +45,7 @@ def connect_to_14periods5min_rel_volume_db():
 def connect_to_last_day_rs_chart_db():
     return MongoClient('mongodb://localhost:27017/last_day_rs_chart').get_default_database()
 
+def connect_to_ta_analysis_db():
+    return MongoClient('mongodb://localhost:27017/TA_Analysis').get_default_database()
+
 

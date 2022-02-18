@@ -91,10 +91,10 @@ def create_last_day_rs_chart(timestamp):
                     number -= 0.5
                     counter += 1
                 if counter not in symbol_data_dict:
-                    symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
+                    symbol_data_dict.update({str(counter): {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
                 else:
-                    symbol_data_dict[counter]["Totalvolume"] += elem['v']
-                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
+                    symbol_data_dict[str(counter)]["Totalvolume"] += elem['v']
+                    symbol_data_dict[str(counter)]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
                                                                elem['RS']
 
             if number < 0:
@@ -103,10 +103,10 @@ def create_last_day_rs_chart(timestamp):
                     number += 0.5
                     counter -= 1
                 if counter not in symbol_data_dict:
-                    symbol_data_dict.update({counter: {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
+                    symbol_data_dict.update({str(counter): {"Totalvolume": elem['v'], "Average_RS": elem['RS']}})
                 else:
-                    symbol_data_dict[counter]["Totalvolume"] += elem['v']
-                    symbol_data_dict[counter]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
+                    symbol_data_dict[str(counter)]["Totalvolume"] += elem['v']
+                    symbol_data_dict[str(counter)]["Average_RS"] += elem['v'] / symbol_data_dict[counter]["Totalvolume"] * \
                                                                elem['RS']
 
         all_symbols_data_dict[collection] = symbol_data_dict
