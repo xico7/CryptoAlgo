@@ -62,6 +62,7 @@ async def ta_analysis():
     done_minute = 0
     while True:
         try:
+            print("Hello")
             ta_analysis_db = mongo.connect_to_ta_analysis_db()
             parse_current_minute = dts.get_current_time()
             while parse_current_minute % 60 != 0:
