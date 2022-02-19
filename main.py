@@ -52,7 +52,7 @@ class TACache:
         self._ta_chart_value = value
 
 
-PRINT_RUNNING_EXECUTION_EACH_SECONDS = 60
+PRINT_RUNNING_EXECUTION_EACH_SECONDS = 900
 
 
 async def ta_analysis():

@@ -43,6 +43,7 @@ def create_14periods5min_rel_volume():
         coins_last_14p5m_volumes = 0
         for elem in list(db_5m_feed.get_collection(collection).find(sort=[("Time", -1)]))[:14]:
             coins_last_14p5m_volumes += float(elem['v']) / 14
+            #TODO : Review line 47 list index out of range.. maybe because i rebooted astarted both runs at same time and it was unpopulated.
         coins_relative_volume[collection] = list(db_5m_feed.get_collection(collection).find(sort=[("Time", -1)]))[1]['v'] / coins_last_14p5m_volumes
 
     return coins_relative_volume
