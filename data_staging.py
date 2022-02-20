@@ -24,14 +24,20 @@ def get_current_time() -> int:
 def create_last_days_rel_volume():
     DAYS_NUMBER = 7
     # TODO: 1 day instead of 4h db_feed = mongo.connect_to_1h_ohlc_db()
-    db_oneday_feed = mongo.connect_to_4h_ohlc_db()
+    # DONE 20fev 10:45
+    db_oneday_feed = mongo.connect_to_1d_ohlc_db()
 
     coins_relative_volume = {}
     for collection in db_oneday_feed.list_collection_names():
         coins_last_days_volumes = 0
         for elem in list(db_oneday_feed.get_collection(collection).find(sort=[("Time", -1)]))[1:DAYS_NUMBER]:
             coins_last_days_volumes += float(elem['v']) / DAYS_NUMBER
-        coins_relative_volume[collection] = list(db_oneday_feed.get_collection(collection).find(sort=[("Time", -1)]))[1]['v'] / coins_last_days_volumes
+        try:
+            coins_relative_volume[collection] = list(db_oneday_feed.get_collection(collection).find(sort=[("Time", -1)]))[1]['v'] / coins_last_days_volumes
+        except ZeroDivisionError:
+            return 0
+        except IndexError:
+            return 0
 
     return coins_relative_volume
 
