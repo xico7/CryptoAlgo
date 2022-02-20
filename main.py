@@ -60,9 +60,10 @@ async def ta_analysis():
     ta_cache = TACache()
     current_minute = 0
     done_minute = 0
+    print("Hello")
     while True:
         try:
-            print("Hello")
+
             ta_analysis_db = mongo.connect_to_ta_analysis_db()
             parse_current_minute = dts.get_current_time()
             while parse_current_minute % 60 != 0:
