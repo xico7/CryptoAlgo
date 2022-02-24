@@ -73,7 +73,7 @@ async def ta_analysis():
                 current_minute = parse_current_minute
 
                 if current_minute % 1800 == 0:
-                # TODO: if current_minute % 1800 == 0:
+                # TODO: mongodb logs about 50gigs a day..
                     # if finished_ohlc_open_timestamp % mongoDBcreate.THIRTY_MIN_IN_SEC == 0 and \
                     #         finished_ohlc_open_timestamp > (begin_run + mongoDBcreate.ONE_DAY_IN_SEC):
 
