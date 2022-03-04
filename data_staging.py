@@ -23,8 +23,7 @@ def get_current_time() -> int:
 
 def create_last_days_rel_volume():
     DAYS_NUMBER = 7
-    # TODO: 1 day instead of 4h db_feed = mongo.connect_to_1h_ohlc_db()
-    # DONE 20fev 10:45
+
     db_oneday_feed = mongo.connect_to_1d_ohlc_db()
 
     coins_relative_volume = {}
